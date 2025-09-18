@@ -25,24 +25,43 @@ export const GenerationConfigSchema = z.object({
     fallback: z.string().default('gpt-3.5-turbo'),
     vision: z.string().default('gpt-4-vision-preview').optional(),
     image: z.string().default('dall-e-3').optional()
-  }).default({}),
+  }).default(() => ({
+    primary: 'gpt-4',
+    fallback: 'gpt-3.5-turbo',
+    vision: 'gpt-4-vision-preview',
+    image: 'dall-e-3'
+  })),
   constraints: z.object({
     maxTokens: z.number().default(50000),
     timeoutMinutes: z.number().default(30),
     retryAttempts: z.number().default(3)
-  }).default({}),
+  }).default(() => ({
+    maxTokens: 50000,
+    timeoutMinutes: 30,
+    retryAttempts: 3
+  })),
   quality: z.object({
     enableFactChecking: z.boolean().default(false),
     enablePlagiarismCheck: z.boolean().default(false),
     strictPedagogy: z.boolean().default(true),
     requireMisconceptions: z.boolean().default(true)
-  }).default({}),
+  }).default(() => ({
+    enableFactChecking: false,
+    enablePlagiarismCheck: false,
+    strictPedagogy: true,
+    requireMisconceptions: true
+  })),
   features: z.object({
     generateImages: z.boolean().default(false),
     generateDiagrams: z.boolean().default(true),
     includeAccessibility: z.boolean().default(true),
     enableAnalytics: z.boolean().default(false)
-  }).default({})
+  }).default(() => ({
+    generateImages: false,
+    generateDiagrams: true,
+    includeAccessibility: true,
+    enableAnalytics: false
+  }))
 });
 
 // Generation progress/status
@@ -73,7 +92,11 @@ export const ExportOptionsSchema = z.object({
     highContrast: z.boolean().default(false),
     largeText: z.boolean().default(false),
     includeAltText: z.boolean().default(true)
-  }).default({})
+  }).default(() => ({
+    highContrast: false,
+    largeText: false,
+    includeAltText: true
+  }))
 });
 
 // Error response
@@ -81,7 +104,7 @@ export const ErrorResponseSchema = z.object({
   error: z.object({
     code: z.string(),
     message: z.string(),
-    details: z.record(z.unknown()).optional()
+    details: z.record(z.string(), z.unknown()).optional()
   }),
   timestamp: z.date(),
   requestId: z.string().optional()

@@ -127,12 +127,12 @@ export async function POST(request: NextRequest) {
     console.error('💥 [API] Error in workbook generation endpoint:', error);
     
     if (error instanceof z.ZodError) {
-      console.error('📝 [API] Validation errors:', error.errors);
+      console.error('📝 [API] Validation errors:', error.issues);
       return NextResponse.json(
         { 
           error: 'Invalid request data',
-          details: error.errors.map(e => `${e.path.join('.')}: ${e.message}`),
-          debug: { duration, validationErrors: error.errors }
+          details: error.issues.map((e: z.ZodIssue) => `${e.path.join('.')}: ${e.message}`),
+          debug: { duration, validationErrors: error.issues }
         },
         { status: 400 }
       );

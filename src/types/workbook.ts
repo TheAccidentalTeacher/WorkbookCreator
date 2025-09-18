@@ -38,7 +38,7 @@ export const AssetSchema = z.object({
   altText: z.string(),
   license: z.string().default('CC-BY-4.0'),
   usageRefs: z.array(z.string().uuid()).default([]),
-  metadata: z.record(z.unknown()).default({}),
+  metadata: z.record(z.string(), z.unknown()).default({}),
   createdAt: z.date(),
   updatedAt: z.date()
 });
@@ -227,7 +227,11 @@ export const WorkbookSchema = z.object({
     readingLevel: z.string().optional(),
     colorContrastSafe: z.boolean().default(true),
     keyboardNavigable: z.boolean().default(true)
-  }).default({}),
+  }).default(() => ({
+    altTextComplete: false,
+    colorContrastSafe: true,
+    keyboardNavigable: true
+  })),
   
   // Export status
   exportStatus: z.object({
@@ -235,7 +239,11 @@ export const WorkbookSchema = z.object({
     html: z.boolean().default(false),
     pdf: z.boolean().default(false),
     lastExportAt: z.date().optional()
-  }).default({}),
+  }).default(() => ({
+    json: false,
+    html: false,
+    pdf: false
+  })),
   
   // Timestamps
   createdAt: z.date(),
