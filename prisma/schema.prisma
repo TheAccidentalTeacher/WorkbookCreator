@@ -1,0 +1,193 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      UserRole @default(TEACHER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  workbooks Workbook[]
+  @@map("users")
+}
+
+model Workbook {
+  id                String   @id @default(cuid())
+  title             String
+  description       String?
+  topic             String
+  subjectDomain     String
+  subjectTags       String[]
+  targetAudience    Json
+  learningObjectives Json[]
+  sections          Json[]
+  formativeAssessments Json[]
+  summativeAssessments Json[]
+  glossary          Json[]
+  assets            Json[]
+  pedagogyCompliance Json?
+  generationMetadata Json
+  accessibility     Json     @default("{}")
+  exportStatus      Json     @default("{}")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  publishedAt       DateTime?
+
+  // Relations
+  createdBy   String?
+  user        User?   @relation(fields: [createdBy], references: [id])
+
+  // Generation tracking
+  generationJobs GenerationJob[]
+
+  @@map("workbooks")
+}
+
+model GenerationJob {
+  id                String            @id @default(cuid())
+  workbookId        String
+  state             GenerationState
+  currentStep       String
+  totalSteps        Int               @default(10)
+  completedSteps    Int               @default(0)
+  progress          Float             @default(0)
+  startedAt         DateTime          @default(now())
+  completedAt       DateTime?
+  errorMessage      String?
+  tokenUsage        Int               @default(0)
+  estimatedCost     Float             @default(0)
+  actualCost        Float             @default(0)
+  
+  // Configuration
+  config            Json              @default("{}")
+  
+  // Relations
+  workbook          Workbook          @relation(fields: [workbookId], references: [id], onDelete: Cascade)
+  steps             GenerationStep[]
+
+  @@map("generation_jobs")
+}
+
+model GenerationStep {
+  id              String        @id @default(cuid())
+  jobId           String
+  stepName        String
+  state           StepState     @default(PENDING)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  duration        Int?          // in milliseconds
+  input           Json?
+  output          Json?
+  errorMessage    String?
+  tokenUsage      Int           @default(0)
+  cost            Float         @default(0)
+  modelUsed       String?
+  
+  // Relations
+  job             GenerationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("generation_steps")
+}
+
+model Asset {
+  id                String    @id @default(cuid())
+  workbookId        String?
+  type              AssetType
+  title             String
+  description       String?
+  generationPrompt  String?
+  url               String?
+  localPath         String?
+  altText           String
+  license           String    @default("CC-BY-4.0")
+  usageRefs         String[]  @default([])
+  metadata          Json      @default("{}")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("assets")
+}
+
+model PedagogicalRule {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  description   String
+  category      String
+  severity      String   // "error", "warning", "info"
+  ruleFunction  String   // JavaScript function as string
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("pedagogical_rules")
+}
+
+model Usage {
+  id            String   @id @default(cuid())
+  userId        String?
+  workbookId    String?
+  action        String   // "generate", "export", "edit", etc.
+  tokenCount    Int      @default(0)
+  cost          Float    @default(0)
+  duration      Int?     // in milliseconds
+  success       Boolean  @default(true)
+  errorMessage  String?
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  @@map("usage")
+}
+
+// Enums
+enum UserRole {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+enum GenerationState {
+  INIT
+  TOPIC_PARSE
+  OBJECTIVE_GEN
+  OUTLINE_GEN
+  SECTION_DRAFT
+  EXERCISE_GEN
+  SOLUTION_GEN
+  MISCONCEPTION_GEN
+  ASSET_PLAN
+  ASSET_GEN
+  QA_VALIDATE
+  LAYOUT_BUILD
+  EXPORT
+  COMPLETE
+  ERROR
+}
+
+enum StepState {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum AssetType {
+  GENERATED_IMAGE
+  DIAGRAM_SVG
+  CHART
+  TABLE
+  VIDEO
+  AUDIO
+}

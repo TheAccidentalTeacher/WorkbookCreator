@@ -39,3 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Pedagogical workbook generator specific
+logs/
+*.log
+public/generated/
+uploads/
+tmp/
+temp/
+.vscode/
+.idea/
