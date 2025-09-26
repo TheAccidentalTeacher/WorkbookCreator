@@ -1,5 +1,7 @@
-// Simple PDF Generator using client-side approach
+// Visual Fraction Worksheet PDF Generator using client-side approach
 import { Workbook } from '@/types/workbook';
+import { MathRenderer } from '@/utils/mathRenderer';
+import { VisualWorksheetPdfGenerator } from './VisualWorksheetPdfGenerator';
 
 // Dynamic import approach for client-side only
 export class SimplePdfGenerator {
@@ -35,16 +37,126 @@ export class SimplePdfGenerator {
   }
   
   /**
-   * Generate educational workbook PDF
+   * Process text content to handle LaTeX math expressions and image placeholders
+   */
+  private static processMathContent(text: string): string {
+    return MathRenderer.processMixedContent(text, 'plaintext');
+  }
+
+  /**
+   * Process content with embedded images and return PDFMake content array
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private static processContentWithImages(content: string, imageData?: any[]): any[] {
+    if (!imageData || imageData.length === 0) {
+      // No images, return plain text
+      return [{ text: this.processMathContent(content) }];
+    }
+
+    const result = [];
+    
+    // Split content by image placeholders
+    const parts = content.split(/\[IMAGE_(\d+): ([^\]]+)\]/);
+    
+    for (let i = 0; i < parts.length; i++) {
+      if (i % 3 === 0) {
+        // Text part
+        if (parts[i].trim()) {
+          result.push({ text: this.processMathContent(parts[i].trim()), margin: [0, 5, 0, 5] });
+        }
+      } else if (i % 3 === 1) {
+        // Image index
+        const imageIndex = parseInt(parts[i], 10);
+        const imageDescription = parts[i + 1];
+        
+        if (imageData[imageIndex] && imageData[imageIndex].base64Data) {
+          console.log(`🖼️ [PDF] Embedding image ${imageIndex}: ${imageDescription}`);
+          
+          // Add image to PDF
+          result.push({
+            image: imageData[imageIndex].base64Data,
+            width: 400,
+            height: 300,
+            alignment: 'center',
+            margin: [0, 10, 0, 10]
+          });
+          
+          // Add image caption
+          result.push({
+            text: imageDescription,
+            style: 'caption',
+            alignment: 'center',
+            margin: [0, 0, 0, 15]
+          });
+        } else {
+          // Fallback to text description if no base64 data
+          result.push({
+            text: `[Image: ${imageDescription}]`,
+            style: 'imagePlaceholder',
+            alignment: 'center',
+            margin: [0, 10, 0, 10]
+          });
+        }
+        i++; // Skip the description part as we've already used it
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Generate educational workbook PDF with enhanced math support
    */
   public static async generateWorkbookPdf(workbook: Workbook): Promise<Blob> {
+    // Check if this is a fraction-focused workbook
+    const isFractionWorkbook = this.isFractionTopic(workbook);
+    
+    if (isFractionWorkbook) {
+      // Use visual fraction worksheet generator
+      const visualGenerator = new VisualWorksheetPdfGenerator();
+      return await visualGenerator.generateVisualWorksheetPdf(
+        workbook.title,
+        this.extractGradeLevel(workbook.targetAudience.gradeBand),
+        ['identify_fraction', 'color_fraction', 'compare_fractions']
+      );
+    }
+    
+    // Fall back to original PDF generation for non-fraction topics
+    return this.generateTraditionalWorkbookPdf(workbook);
+  }
+
+  /**
+   * Check if workbook is focused on fractions
+   */
+  private static isFractionTopic(workbook: Workbook): boolean {
+    const fractionKeywords = ['fraction', 'fractions', 'numerator', 'denominator', 'part', 'whole'];
+    const topicLower = workbook.topic.toLowerCase();
+    const titleLower = workbook.title.toLowerCase();
+    
+    return fractionKeywords.some(keyword => 
+      topicLower.includes(keyword) || titleLower.includes(keyword)
+    );
+  }
+
+  /**
+   * Extract numeric grade level from grade band
+   */
+  private static extractGradeLevel(gradeBand: string): number {
+    const match = gradeBand.match(/\d+/);
+    return match ? parseInt(match[0], 10) : 3; // Default to 3rd grade
+  }
+
+  /**
+   * Generate traditional workbook PDF (original method)
+   */
+  private static async generateTraditionalWorkbookPdf(workbook: Workbook): Promise<Blob> {
     const pdfMake = await this.initializePdfMake();
     
     const docDefinition = {
       content: [
         // Title Page
         {
-          text: workbook.title,
+          text: this.processMathContent(workbook.title),
           style: 'title',
           alignment: 'center',
           margin: [0, 50, 0, 20]
@@ -95,19 +207,28 @@ export class SimplePdfGenerator {
         { text: '', pageBreak: 'after' },
         
         // Sections Content
-        ...workbook.sections.flatMap((section, sectionIndex) => [
-          {
-            text: `Section ${sectionIndex + 1}: ${section.title}`,
-            style: 'sectionHeader',
-            margin: [0, 20, 0, 15]
-          },
-          {
-            text: section.conceptExplanation,
-            margin: [0, 0, 0, 20]
-          },
+        ...workbook.sections.flatMap((section, sectionIndex) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const sectionContent: any[] = [
+            {
+              text: `Section ${sectionIndex + 1}: ${section.title}`,
+              style: 'sectionHeader',
+              margin: [0, 20, 0, 15]
+            }
+          ];
           
-          // Exercises
-          ...section.exercises.map((exercise, exerciseIndex) => [
+          // Process concept explanation with potential images
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const imageData = (section as any).__imageData;
+          const conceptContent = this.processContentWithImages(
+            section.conceptExplanation || '',
+            imageData
+          );
+          
+          sectionContent.push(...conceptContent);
+          
+          // Add exercises
+          const exerciseContent = section.exercises.map((exercise, exerciseIndex) => [
             {
               text: `Exercise ${exerciseIndex + 1}: ${exercise.prompt}`,
               style: 'exerciseHeader',
@@ -119,11 +240,15 @@ export class SimplePdfGenerator {
                 : 'Answer: _____________________',
               margin: [20, 0, 0, 15]
             }
-          ]).flat(),
+          ]).flat();
+          
+          sectionContent.push(...exerciseContent);
           
           // Page break after each section
-          { text: '', pageBreak: 'after' }
-        ]),
+          sectionContent.push({ text: '', pageBreak: 'after' });
+          
+          return sectionContent;
+        }),
         
         // Answer Key
         {
@@ -168,6 +293,18 @@ export class SimplePdfGenerator {
         tocItem: {
           fontSize: 12,
           color: '#4b5563'
+        },
+        caption: {
+          fontSize: 10,
+          color: '#6b7280',
+          italics: true
+        },
+        imagePlaceholder: {
+          fontSize: 12,
+          color: '#9ca3af',
+          italics: true,
+          background: '#f3f4f6',
+          padding: 5
         }
       },
       

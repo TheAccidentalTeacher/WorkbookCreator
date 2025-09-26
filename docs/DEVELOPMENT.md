@@ -10,10 +10,12 @@ This guide provides comprehensive instructions for setting up, developing, and c
 2. [Environment Setup](#environment-setup)
 3. [Development Workflow](#development-workflow)
 4. [Code Organization](#code-organization)
-5. [Testing Strategy](#testing-strategy)
-6. [Debugging](#debugging)
-7. [Performance Optimization](#performance-optimization)
-8. [Best Practices](#best-practices)
+5. [Phase 2 Development](#phase-2-development)
+6. [Testing Strategy](#testing-strategy)
+7. [Debugging](#debugging)
+8. [Performance Optimization](#performance-optimization)
+9. [Contributing Guidelines](#contributing-guidelines)
+10. [Best Practices](#best-practices)
 
 ## Prerequisites
 
@@ -27,7 +29,7 @@ This guide provides comprehensive instructions for setting up, developing, and c
 ### Required VS Code Extensions
 
 ```json
-// .vscode/extensions.json
+// .vscode/extensions.json (create this file)
 {
   "recommendations": [
     "bradlc.vscode-tailwindcss",
@@ -35,10 +37,9 @@ This guide provides comprehensive instructions for setting up, developing, and c
     "dbaeumer.vscode-eslint",
     "ms-vscode.vscode-typescript-next",
     "ms-vscode.vscode-json",
-    "bradlc.vscode-tailwindcss",
     "formulahendry.auto-rename-tag",
     "christian-kohler.path-intellisense",
-    "ms-vscode.vscode-json"
+    "prisma.prisma"
   ]
 }
 ```
@@ -48,6 +49,7 @@ This guide provides comprehensive instructions for setting up, developing, and c
 - **GitHub CLI**: For enhanced Git workflows
 - **Docker**: If you plan to use containerized development
 - **Railway CLI**: For deployment management
+- **Google Cloud SDK**: For Vertex AI development
 
 ## Environment Setup
 
@@ -56,7 +58,7 @@ This guide provides comprehensive instructions for setting up, developing, and c
 ```bash
 # Clone the repository
 git clone https://github.com/TheAccidentalTeacher/WorkbookCreator.git
-cd WorkbookCreator
+cd pedagogical-workbook-generator
 
 # Install dependencies
 npm install
@@ -69,35 +71,736 @@ npm install
 cp .env.example .env.local
 
 # Edit with your configuration
-# Use your preferred editor
 code .env.local
 ```
 
 #### Environment Variables
 
 ```bash
-# .env.local
-# Core Application
+# .env.local - Development Configuration
+
+# === Core Application ===
 NODE_ENV=development
 PORT=3000
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=development-secret-key-change-in-production
 
-# AI Services (Optional for development)
+# === Database (PostgreSQL) ===
+# Option 1: Local PostgreSQL
+DATABASE_URL=postgresql://username:password@localhost:5432/workbook_generator
+
+# Option 2: Railway Development Database
+DATABASE_URL=postgresql://postgres:password@host:port/railway
+
+# === Phase 1 AI Services ===
 OPENAI_API_KEY=sk-your-openai-key-here
 ANTHROPIC_API_KEY=ant-your-anthropic-key-here
 
-# Database (Optional for local development)
-DATABASE_URL=postgresql://username:password@localhost:5432/workbook_generator
+# === Phase 2 AI Services ===
+GOOGLE_VERTEX_AI_PROJECT_ID=your-google-project-id
+GOOGLE_APPLICATION_CREDENTIALS=./google-credentials.json
 
-# Development Only
+# Optional Phase 2 Services
+SYMBOLAB_API_KEY=your-symbolab-key
+
+# === Educational Image APIs ===
+UNSPLASH_ACCESS_KEY=your-unsplash-access-key
+PEXELS_API_KEY=your-pexels-api-key
+PIXABAY_API_KEY=your-pixabay-api-key
+
+# === Development Settings ===
 NEXT_PUBLIC_DEV_MODE=true
 NEXT_PUBLIC_API_BASE_URL=http://localhost:3000/api
 ```
 
-### 3. IDE Configuration
+### 3. Database Setup
+
+#### Option A: Local PostgreSQL
+
+```bash
+# Install PostgreSQL (macOS)
+brew install postgresql
+brew services start postgresql
+
+# Create database
+createdb workbook_generator
+
+# Set up schema
+npx prisma db push
+```
+
+#### Option B: Railway Database (Recommended)
+
+```bash
+# Install Railway CLI
+npm install -g @railway/cli
+
+# Login and connect to project
+railway login
+railway link [project-id]
+
+# Get database URL
+railway variables
+
+# Copy DATABASE_URL to .env.local
+```
+
+### 4. Google Cloud Setup (Phase 2)
+
+```bash
+# Install Google Cloud SDK
+# Follow instructions at: https://cloud.google.com/sdk/docs/install
+
+# Authenticate
+gcloud auth login
+
+# Set project
+gcloud config set project your-project-id
+
+# Download service account key
+# (Follow Phase 2 API Setup Guide)
+```
+
+### 5. IDE Configuration
 
 #### VS Code Settings
 
 ```json
+// .vscode/settings.json (create this file)
+{
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": true
+  },
+  "typescript.preferences.importModuleSpecifier": "relative",
+  "typescript.suggest.autoImports": true,
+  "emmet.includeLanguages": {
+    "typescript": "html",
+    "typescriptreact": "html"
+  },
+  "tailwindCSS.includeLanguages": {
+    "typescript": "html",
+    "typescriptreact": "html"
+  }
+}
+```
+
+## Development Workflow
+
+### 1. Start Development Server
+
+```bash
+# Start the development server
+npm run dev
+
+# Server will start at http://localhost:3000
+# Hot reload is enabled for all file changes
+```
+
+### 2. Development Commands
+
+```bash
+# Development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Start production server
+npm start
+
+# Type checking
+npm run type-check
+
+# Linting
+npm run lint
+npm run lint:fix
+
+# Database operations
+npx prisma studio      # Database GUI
+npx prisma db push     # Push schema changes
+npx prisma generate    # Generate Prisma client
+npx prisma migrate dev # Create and apply migration
+
+# Testing
+npm test              # Run all tests
+npm run test:watch    # Run tests in watch mode
+npm run test:coverage # Generate coverage report
+```
+
+### 3. Git Workflow
+
+```bash
+# Create feature branch
+git checkout -b feature/new-feature-name
+
+# Make changes and commit
+git add .
+git commit -m "feat: add new feature description"
+
+# Push to remote
+git push origin feature/new-feature-name
+
+# Create pull request via GitHub UI
+```
+
+#### Commit Message Convention
+
+We follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```bash
+# Format
+<type>[optional scope]: <description>
+
+# Examples
+feat(ui): add new workbook creation form
+fix(api): resolve PDF generation timeout
+docs: update API documentation
+test(phase2): add Vertex AI integration tests
+refactor(services): optimize content validation
+style: format code with prettier
+```
+
+## Code Organization
+
+### Project Structure
+
+```
+pedagogical-workbook-generator/
+├── src/
+│   ├── app/                    # Next.js app directory
+│   │   ├── api/               # API routes
+│   │   │   ├── test-phase2/   # Phase 2 testing endpoint
+│   │   │   └── generate/      # Main generation endpoint
+│   │   ├── phase2-testing/    # Phase 2 testing page
+│   │   └── generate/          # Main generation page
+│   ├── components/            # React components
+│   │   ├── Phase2Testing.tsx  # Phase 2 testing interface
+│   │   ├── Phase2Dashboard.tsx # Phase 2 dashboard
+│   │   └── GenerationProgress.tsx # Progress tracking
+│   ├── services/              # Business logic
+│   │   ├── ai/               # AI service integrations
+│   │   │   ├── BaseAPIService.ts
+│   │   │   ├── VertexAIService.ts
+│   │   │   └── SymbolabMathService.ts
+│   │   ├── APICoordinatorServiceEnhanced.ts
+│   │   └── ContentValidationService.ts
+│   ├── lib/                   # Utility libraries
+│   │   ├── prisma.ts         # Database client
+│   │   └── utils.ts          # Helper functions
+│   └── types/                 # TypeScript type definitions
+├── prisma/                    # Database schema
+├── docs/                      # Documentation
+├── public/                    # Static assets
+└── tests/                     # Test files
+```
+
+### Architecture Patterns
+
+#### 1. Service Layer Pattern
+
+```typescript
+// src/services/ai/BaseAPIService.ts
+export abstract class BaseAPIService {
+  protected apiKey: string;
+  protected baseUrl: string;
+  
+  abstract generateContent(request: ContentRequest): Promise<ContentResponse>;
+  abstract healthCheck(): Promise<HealthStatus>;
+}
+
+// Concrete implementation
+export class VertexAIService extends BaseAPIService {
+  async generateContent(request: ContentRequest): Promise<ContentResponse> {
+    // Implementation
+  }
+}
+```
+
+#### 2. Repository Pattern (Database)
+
+```typescript
+// src/lib/repositories/WorkbookRepository.ts
+export class WorkbookRepository {
+  async create(data: CreateWorkbookData): Promise<Workbook> {
+    return prisma.workbook.create({ data });
+  }
+  
+  async findById(id: string): Promise<Workbook | null> {
+    return prisma.workbook.findUnique({ where: { id } });
+  }
+}
+```
+
+#### 3. Factory Pattern (AI Services)
+
+```typescript
+// src/services/ai/AIServiceFactory.ts
+export class AIServiceFactory {
+  static createService(provider: AIProvider): BaseAPIService {
+    switch (provider) {
+      case 'vertex':
+        return new VertexAIService();
+      case 'openai':
+        return new OpenAIService();
+      default:
+        throw new Error(`Unsupported provider: ${provider}`);
+    }
+  }
+}
+```
+
+## Phase 2 Development
+
+### AI Service Integration
+
+#### 1. Adding New AI Service
+
+```typescript
+// 1. Create service class
+// src/services/ai/NewAIService.ts
+export class NewAIService extends BaseAPIService {
+  constructor() {
+    super({
+      apiKey: process.env.NEW_AI_API_KEY!,
+      baseUrl: 'https://api.newai.com'
+    });
+  }
+  
+  async generateContent(request: ContentRequest): Promise<ContentResponse> {
+    // Implementation
+  }
+  
+  async healthCheck(): Promise<HealthStatus> {
+    // Implementation
+  }
+}
+
+// 2. Register in coordinator
+// src/services/APICoordinatorServiceEnhanced.ts
+private initializeServices() {
+  this.services.set('newai', new NewAIService());
+}
+
+// 3. Add to testing framework
+// src/services/Phase2TestingFramework.ts
+private async testNewAIService(): Promise<TestResult> {
+  // Implementation
+}
+```
+
+#### 2. Content Validation Rules
+
+```typescript
+// src/services/ContentValidationService.ts
+export class ContentValidationService {
+  validateEducationalContent(content: string, criteria: ValidationCriteria): ValidationResult {
+    return {
+      educationalValue: this.scoreEducationalValue(content),
+      ageAppropriate: this.checkAgeAppropriateness(content, criteria.gradeLevel),
+      contentQuality: this.scoreContentQuality(content),
+      safetyCheck: this.performSafetyCheck(content)
+    };
+  }
+}
+```
+
+### Testing Integration
+
+```typescript
+// src/components/Phase2Testing.tsx
+const testAIIntegration = async () => {
+  try {
+    const response = await fetch('/api/test-phase2', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subject: 'mathematics',
+        gradeLevel: 'elementary',
+        topic: 'fractions'
+      })
+    });
+    
+    const result = await response.json();
+    setTestResults(result);
+  } catch (error) {
+    console.error('Test failed:', error);
+  }
+};
+```
+
+## Testing Strategy
+
+### Test Structure
+
+```
+tests/
+├── __mocks__/           # Mock implementations
+├── api/                 # API endpoint tests
+├── components/          # Component tests
+├── services/            # Service layer tests
+├── integration/         # Integration tests
+└── e2e/                # End-to-end tests
+```
+
+### Unit Testing
+
+```typescript
+// tests/services/VertexAIService.test.ts
+import { VertexAIService } from '@/services/ai/VertexAIService';
+
+describe('VertexAIService', () => {
+  let service: VertexAIService;
+  
+  beforeEach(() => {
+    service = new VertexAIService();
+  });
+  
+  test('should generate educational content', async () => {
+    const request = {
+      subject: 'mathematics',
+      gradeLevel: 'elementary',
+      topic: 'fractions'
+    };
+    
+    const response = await service.generateContent(request);
+    
+    expect(response.content).toBeDefined();
+    expect(response.metadata.source).toBe('vertex-ai');
+  });
+});
+```
+
+### Integration Testing
+
+```typescript
+// tests/integration/Phase2Integration.test.ts
+describe('Phase 2 Integration', () => {
+  test('should coordinate multiple AI services', async () => {
+    const coordinator = new APICoordinatorServiceEnhanced();
+    
+    const result = await coordinator.generateContent({
+      type: 'comprehensive',
+      subject: 'science',
+      gradeLevel: 'middle'
+    });
+    
+    expect(result.sections).toHaveLength(3);
+    expect(result.validation.educationalValue).toBeGreaterThan(0.7);
+  });
+});
+```
+
+### Component Testing
+
+```typescript
+// tests/components/Phase2Testing.test.tsx
+import { render, screen, fireEvent } from '@testing-library/react';
+import { Phase2Testing } from '@/components/Phase2Testing';
+
+describe('Phase2Testing Component', () => {
+  test('should display service status', () => {
+    render(<Phase2Testing />);
+    
+    expect(screen.getByText('Vertex AI')).toBeInTheDocument();
+    expect(screen.getByText('Symbolab Math')).toBeInTheDocument();
+  });
+  
+  test('should run health check', async () => {
+    render(<Phase2Testing />);
+    
+    fireEvent.click(screen.getByText('Run Health Check'));
+    
+    await screen.findByText('Health check completed');
+  });
+});
+```
+
+## Debugging
+
+### Development Tools
+
+#### 1. Browser DevTools
+
+```typescript
+// Add debugging helpers
+if (process.env.NODE_ENV === 'development') {
+  // Expose services to window for debugging
+  (window as any).debugServices = {
+    vertexAI: new VertexAIService(),
+    coordinator: new APICoordinatorServiceEnhanced()
+  };
+}
+```
+
+#### 2. Server-Side Debugging
+
+```typescript
+// src/lib/debug.ts
+export const debugLog = (message: string, data?: any) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`[DEBUG] ${message}`, data);
+  }
+};
+
+// Usage in services
+debugLog('Generating content with Vertex AI', { request });
+```
+
+#### 3. Database Debugging
+
+```bash
+# View database with Prisma Studio
+npx prisma studio
+
+# Check database logs
+railway logs --service database
+```
+
+### Common Issues & Solutions
+
+#### 1. Environment Variable Issues
+
+```typescript
+// src/lib/validateEnv.ts
+export function validateEnvironment() {
+  const required = [
+    'DATABASE_URL',
+    'NEXTAUTH_SECRET',
+    'OPENAI_API_KEY'
+  ];
+  
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing environment variables: ${missing.join(', ')}`);
+  }
+}
+```
+
+#### 2. API Key Validation
+
+```typescript
+// Test API keys during development
+const validateAPIKeys = async () => {
+  try {
+    // Test OpenAI
+    await fetch('https://api.openai.com/v1/models', {
+      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }
+    });
+    
+    // Test Vertex AI
+    const vertexService = new VertexAIService();
+    await vertexService.healthCheck();
+    
+    console.log('All API keys validated successfully');
+  } catch (error) {
+    console.error('API key validation failed:', error);
+  }
+};
+```
+
+## Performance Optimization
+
+### 1. Code Splitting
+
+```typescript
+// Dynamic imports for heavy components
+import dynamic from 'next/dynamic';
+
+const Phase2Testing = dynamic(() => import('@/components/Phase2Testing'), {
+  loading: () => <div>Loading...</div>,
+  ssr: false
+});
+```
+
+### 2. API Response Caching
+
+```typescript
+// src/lib/cache.ts
+const cache = new Map();
+
+export function getCachedResponse(key: string, ttl: number) {
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.timestamp < ttl) {
+    return cached.data;
+  }
+  return null;
+}
+```
+
+### 3. Database Optimization
+
+```typescript
+// Optimize Prisma queries
+const workbooks = await prisma.workbook.findMany({
+  select: {
+    id: true,
+    title: true,
+    createdAt: true
+  },
+  take: 10,
+  orderBy: { createdAt: 'desc' }
+});
+```
+
+## Contributing Guidelines
+
+### 1. Code Standards
+
+- **TypeScript**: Strict mode enabled
+- **ESLint**: Follow project ESLint configuration
+- **Prettier**: Auto-format on save
+- **Naming**: Use descriptive, camelCase names
+
+### 2. Pull Request Process
+
+1. **Fork & Branch**: Create feature branch from `main`
+2. **Develop**: Implement feature with tests
+3. **Test**: Ensure all tests pass
+4. **Document**: Update relevant documentation
+5. **PR**: Create pull request with description
+6. **Review**: Address review feedback
+7. **Merge**: Squash and merge when approved
+
+### 3. Code Review Checklist
+
+- [ ] Code follows TypeScript best practices
+- [ ] Tests cover new functionality
+- [ ] Documentation is updated
+- [ ] No console.log statements in production code
+- [ ] Environment variables are documented
+- [ ] Error handling is comprehensive
+- [ ] Performance impact is considered
+
+## Best Practices
+
+### 1. TypeScript
+
+```typescript
+// Use strict types
+interface ContentRequest {
+  subject: Subject;
+  gradeLevel: GradeLevel;
+  topic: string;
+  difficulty: Difficulty;
+}
+
+// Avoid 'any' type
+const processContent = (content: unknown): ProcessedContent => {
+  if (typeof content === 'string') {
+    // Type-safe processing
+  }
+  throw new Error('Invalid content type');
+};
+```
+
+### 2. Error Handling
+
+```typescript
+// Comprehensive error handling
+export class APIError extends Error {
+  constructor(
+    public message: string,
+    public code: string,
+    public statusCode: number
+  ) {
+    super(message);
+  }
+}
+
+// Usage
+try {
+  const result = await aiService.generateContent(request);
+  return result;
+} catch (error) {
+  if (error instanceof APIError) {
+    // Handle API errors
+  } else {
+    // Handle unexpected errors
+    throw new APIError('Internal server error', 'INTERNAL_ERROR', 500);
+  }
+}
+```
+
+### 3. Environment Management
+
+```typescript
+// Type-safe environment variables
+const config = {
+  openai: {
+    apiKey: process.env.OPENAI_API_KEY!,
+    model: process.env.OPENAI_MODEL || 'gpt-4'
+  },
+  vertex: {
+    projectId: process.env.GOOGLE_VERTEX_AI_PROJECT_ID!,
+    credentials: process.env.GOOGLE_APPLICATION_CREDENTIALS!
+  }
+} as const;
+```
+
+### 4. Component Design
+
+```typescript
+// Props interface
+interface WorkbookFormProps {
+  onSubmit: (data: WorkbookData) => void;
+  initialData?: Partial<WorkbookData>;
+  loading?: boolean;
+}
+
+// Component with proper TypeScript
+export const WorkbookForm: React.FC<WorkbookFormProps> = ({
+  onSubmit,
+  initialData,
+  loading = false
+}) => {
+  // Implementation
+};
+```
+
+### 5. API Design
+
+```typescript
+// Consistent API response format
+interface APIResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: {
+    code: string;
+    message: string;
+    details?: any;
+  };
+  metadata?: {
+    timestamp: string;
+    requestId: string;
+  };
+}
+```
+
+## Useful Resources
+
+### Documentation
+- [Next.js Documentation](https://nextjs.org/docs)
+- [React Documentation](https://react.dev)
+- [TypeScript Handbook](https://www.typescriptlang.org/docs)
+- [Prisma Documentation](https://www.prisma.io/docs)
+- [Tailwind CSS](https://tailwindcss.com/docs)
+
+### AI Services
+- [Google Vertex AI](https://cloud.google.com/vertex-ai/docs)
+- [OpenAI API](https://platform.openai.com/docs)
+- [Anthropic Claude](https://docs.anthropic.com)
+
+### Tools
+- [Railway Documentation](https://docs.railway.app)
+- [VS Code Extensions](https://marketplace.visualstudio.com/vscode)
+- [GitHub CLI](https://cli.github.com)
+
+---
+
+Happy coding! 🚀 If you have questions, check the existing documentation or open an issue in the repository.
 // .vscode/settings.json
 {
   "editor.formatOnSave": true,

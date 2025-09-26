@@ -2,6 +2,9 @@ import { GenerationContext, PipelineStep, GenerationStateType } from '@/types';
 import { AIService } from './aiService';
 import { TopicProcessor } from './topicProcessor';
 import { LearningObjectiveGenerator } from './learningObjectiveGenerator';
+import { EnhancedMathContentService } from './integration/EnhancedMathContentService';
+import { GradeLevelContentService } from './gradeLevelContentService';
+import { VisualContentService, TextDensityLevel, VisualContentOptions } from './visualContentService';
 import { debugSystem } from '../utils/debugSystem';
 
 export interface WorkbookOutline {
@@ -25,6 +28,11 @@ export interface SectionContent {
   summary: string;
   exercises?: Exercise[];
   misconceptions?: Misconception[];
+  images?: Array<{
+    url: string;
+    description: string;
+    placement: 'header' | 'inline' | 'sidebar';
+  }>;
 }
 
 export interface Exercise {
@@ -34,6 +42,12 @@ export interface Exercise {
   correctAnswer: string;
   explanation: string;
   solution?: ExerciseSolution;
+  visualData?: {
+    visual_type: string;
+    shape: string;
+    total_parts: number;
+    shaded_parts: number;
+  };
 }
 
 export interface ExerciseSolution {
@@ -71,6 +85,7 @@ export interface GenerationPipeline {
 export class ContentGenerationOrchestrator {
   private aiService: AIService;
   private objectiveGenerator: LearningObjectiveGenerator;
+  private enhancedMathService: EnhancedMathContentService;
 
   constructor() {
     debugSystem.info('Content Generation Orchestrator', 'Initializing orchestrator', {
@@ -79,10 +94,27 @@ export class ContentGenerationOrchestrator {
     
     this.aiService = new AIService();
     this.objectiveGenerator = new LearningObjectiveGenerator();
+    this.enhancedMathService = new EnhancedMathContentService();
+    
+    // Create a simple adapter for the AI service
+    const aiServiceAdapter = {
+      generateContent: async (prompt: string): Promise<string> => {
+        const response = await this.aiService.generateCompletion(prompt, 'gpt-4', {
+          temperature: 0.7,
+          maxTokens: 2000
+        });
+        return response.content;
+      },
+      isConfigured: () => true
+    };
+    
+    // Set up the Enhanced Math Service with AI service adapter
+    this.enhancedMathService.setAIServices(aiServiceAdapter, null);
     
     debugSystem.info('Content Generation Orchestrator', 'Orchestrator initialized successfully', {
       aiServiceReady: !!this.aiService,
-      objectiveGeneratorReady: !!this.objectiveGenerator
+      objectiveGeneratorReady: !!this.objectiveGenerator,
+      enhancedMathServiceReady: this.enhancedMathService.isConfigured()
     });
   }
 
@@ -93,6 +125,8 @@ export class ContentGenerationOrchestrator {
     topic: string;
     gradeBand: string;
     subjectDomain?: string;
+    textDensity?: TextDensityLevel;
+    visualOptions?: VisualContentOptions;
     options?: Record<string, unknown>;
   }): Promise<GenerationPipeline> {
     const perfLabel = 'orchestrator.startGeneration';
@@ -299,7 +333,9 @@ export class ContentGenerationOrchestrator {
           const prompt = this.buildOutlinePrompt(
             context.input.topic as string,
             analysis,
-            objectives
+            objectives,
+            (context.input as { textDensity?: TextDensityLevel }).textDensity || 'minimal',
+            (context.input as { visualOptions?: VisualContentOptions }).visualOptions || VisualContentService.getDefaultVisualOptions()
           );
           
           const response = await this.aiService.generateCompletion(prompt, 'gpt-4', {
@@ -329,7 +365,9 @@ export class ContentGenerationOrchestrator {
             const sectionContent = await this.generateSectionContent(
               sectionOutline,
               analysis,
-              context.input.topic as string
+              context.input.topic as string,
+              (context.input as { textDensity?: TextDensityLevel }).textDensity || 'minimal',
+              (context.input as { visualOptions?: VisualContentOptions }).visualOptions || VisualContentService.getDefaultVisualOptions()
             );
             sections.push(sectionContent);
           }
@@ -404,10 +442,69 @@ export class ContentGenerationOrchestrator {
       },
 
       {
+        name: 'image_gen',
+        description: 'Generate visual content and images for each section',
+        execute: async (context: GenerationContext) => {
+          const sections = context.artifacts.sections as SectionContent[];
+          const analysis = context.artifacts.topicAnalysis as {
+            subjectDomain: string;
+            suggestedGradeBand: string;
+          };
+          
+          // Check if image generation is enabled
+          if (process.env.ENABLE_IMAGE_GENERATION !== 'true') {
+            console.log('Image generation is disabled via environment variable');
+            // Initialize empty images arrays
+            for (const section of sections) {
+              section.images = [];
+            }
+            context.artifacts.sections = sections;
+            return context;
+          }
+          
+          for (const section of sections) {
+            // Generate images for the section content
+            try {
+              // Extract visual descriptions from the section content
+              const visualDescriptions = this.extractVisualDescriptions(section);
+              
+              if (visualDescriptions.length > 0) {
+                const images = await this.aiService.generateSectionImages(
+                  section.title,
+                  visualDescriptions,
+                  analysis.suggestedGradeBand
+                );
+                
+                // Convert to our expected format with placement info
+                section.images = images.map((img, index) => ({
+                  url: img.url,
+                  description: img.description,
+                  placement: index === 0 ? 'header' as const : 'inline' as const
+                }));
+                
+                console.log(`Generated ${images.length} images for section: ${section.title}`);
+              } else {
+                section.images = [];
+                console.log(`No visual content found for section: ${section.title}`);
+              }
+            } catch (error) {
+              console.error(`Failed to generate images for section ${section.title}:`, error);
+              // Continue without images rather than failing the entire generation
+              section.images = [];
+            }
+          }
+          
+          context.artifacts.sections = sections;
+          
+          return context;
+        }
+      },
+
+      {
         name: 'qa_validate',
         description: 'Validate content quality and pedagogical compliance',
         execute: async (context: GenerationContext) => {
-          const validation = await this.validateContent();
+          const validation = await this.validateContent(context);
           context.artifacts.validation = validation;
           
           // If validation fails, we could regenerate problematic content here
@@ -441,6 +538,7 @@ export class ContentGenerationOrchestrator {
       'exercise_gen': 'exercise_gen',
       'solution_gen': 'solution_gen',
       'misconception_gen': 'misconception_gen',
+      'image_gen': 'qa_validate', // Use qa_validate as closest state
       'qa_validate': 'qa_validate',
       'layout_build': 'layout_build'
     };
@@ -451,10 +549,25 @@ export class ContentGenerationOrchestrator {
   private buildOutlinePrompt(
     topic: string, 
     analysis: { subjectDomain: string; suggestedGradeBand: string; complexity: string; keywords?: string[] }, 
-    objectives: Array<{ text: string }>
+    objectives: Array<{ text: string }>,
+    textDensity: TextDensityLevel = 'minimal',
+    visualOptions: VisualContentOptions = VisualContentService.getDefaultVisualOptions()
   ): string {
+    // Get grade-specific constraints
+    const gradeConstraints = GradeLevelContentService.getContentConstraints(
+      analysis.suggestedGradeBand as 'k-2' | '3-5' | '6-8' | '9-10' | '11-12' | 'adult'
+    );
+
+    // Get visual content instructions
+    const visualInstructions = VisualContentService.generateVisualContentPrompt(
+      textDensity,
+      analysis.subjectDomain as 'mathematics' | 'science' | 'english_language_arts' | 'social_studies' | 'history' | 'geography' | 'art' | 'music' | 'physical_education' | 'computer_science' | 'foreign_language' | 'other',
+      analysis.suggestedGradeBand as 'k-2' | '3-5' | '6-8' | '9-10' | '11-12' | 'adult',
+      visualOptions
+    );
+
     return `
-Create a structured outline for a workbook on "${topic}".
+Create a structured outline for a VISUAL-FIRST workbook on "${topic}".
 
 Topic Analysis:
 - Subject: ${analysis.subjectDomain}
@@ -462,15 +575,30 @@ Topic Analysis:
 - Complexity: ${analysis.complexity}
 - Keywords: ${analysis.keywords?.join(', ')}
 
+${gradeConstraints}
+
+${visualInstructions}
+
 Learning Objectives:
 ${objectives.map((obj, i) => `${i + 1}. ${obj.text}`).join('\n')}
 
 Create an outline with 3-5 sections that:
-1. Build progressively from basic to advanced concepts
-2. Include engaging examples and real-world applications
-3. Provide multiple practice opportunities
-4. Address potential misconceptions
-5. Align with the learning objectives
+1. PRIORITIZE VISUAL ELEMENTS over text content
+2. Build progressively from basic to advanced concepts
+3. Are appropriate for the grade level specified above
+4. Use only vocabulary and concepts suitable for this age group
+5. Include engaging visual examples and real-world applications
+6. Provide multiple visual practice opportunities
+7. Address potential misconceptions through visual representations
+8. Align with the learning objectives
+9. Include specific visual element descriptions for each section
+10. Design for maximum visual appeal and creative engagement
+
+CRITICAL: 
+- Follow ALL grade-level constraints listed above
+- Follow ALL visual-first content requirements listed above  
+- Content that is too advanced for the grade level is unacceptable
+- Content that is too text-heavy for the specified visual density is unacceptable
 
 Format as JSON:
 {
@@ -512,10 +640,30 @@ Outline:`;
   private async generateSectionContent(
     sectionOutline: SectionOutline, 
     analysis: { subjectDomain: string; suggestedGradeBand: string }, 
-    topic: string
+    topic: string,
+    textDensity: TextDensityLevel = 'minimal',
+    visualOptions: VisualContentOptions = VisualContentService.getDefaultVisualOptions()
   ): Promise<SectionContent> {
+    // Get grade-specific constraints for content generation
+    const gradeConstraints = GradeLevelContentService.getContentConstraints(
+      analysis.suggestedGradeBand as 'k-2' | '3-5' | '6-8' | '9-10' | '11-12' | 'adult'
+    );
+
+    const mathConstraints = analysis.subjectDomain === 'mathematics' ? 
+      GradeLevelContentService.getMathConstraints(
+        analysis.suggestedGradeBand as 'k-2' | '3-5' | '6-8' | '9-10' | '11-12' | 'adult'
+      ) : '';
+
+    // Get visual content instructions
+    const visualInstructions = VisualContentService.generateVisualContentPrompt(
+      textDensity,
+      analysis.subjectDomain as 'mathematics' | 'science' | 'english_language_arts' | 'social_studies' | 'history' | 'geography' | 'art' | 'music' | 'physical_education' | 'computer_science' | 'foreign_language' | 'other',
+      analysis.suggestedGradeBand as 'k-2' | '3-5' | '6-8' | '9-10' | '11-12' | 'adult',
+      visualOptions
+    );
+
     const prompt = `
-Generate comprehensive content for the section: "${sectionOutline.title}"
+Generate ULTRA VISUAL-FIRST content for the section: "${sectionOutline.title}"
 
 Topic: ${topic}
 Section Purpose: ${sectionOutline.purpose}
@@ -523,17 +671,47 @@ Description: ${sectionOutline.description}
 Grade Level: ${analysis.suggestedGradeBand}
 Key Topics: ${sectionOutline.keyTopics?.join(', ')}
 
+${gradeConstraints}
+
+${mathConstraints}
+
+${visualInstructions}
+
+ULTRA VISUAL-FIRST EXAMPLE for K-2:
+For young children, content should be 95% visual, 5% text. Example structure:
+- HUGE illustration takes up 90% of page space
+- Only 1-3 words per concept (single word labels)
+- Visual sequences that tell story without narration  
+- Characters with emotions showing concepts through actions
+- Interactive elements: tracing, coloring, drawing, matching
+- No paragraphs of text - only picture descriptions for implementers
+
 Create content including:
-1. Clear explanation of concepts (300-500 words)
-2. 2-3 relevant examples
-3. Key vocabulary terms with definitions
+1. MASSIVE visual descriptions that dominate the content (describe full-page illustrations)
+2. Ultra-minimal text (1-5 words per concept maximum)
+3. Visual examples that teach through pictures, not words
+4. Key vocabulary as single-word labels with picture definitions only
+5. Visual exercise descriptions (no written questions - only picture-based activities)
+
+CRITICAL REQUIREMENTS:
+- ELIMINATE 95% OF ALL TEXT - this is for K-2 children who learn visually
+- Use ONLY single-word labels or 2-word phrases maximum
+- Replace ALL written explanations with visual descriptions for graphic designers
+- Every concept must be shown through HUGE, colorful illustrations
+- Design like a wordless picture book that teaches through images alone
+- Create visual sequences, not text descriptions
+- Use visual metaphors and symbols instead of written explanations
+- Every exercise should be purely visual: circle pictures, match images, draw answers
+- Text content should be under 20 words total per section for K-2 students
+
+REMEMBER: Young children cannot read - they learn through pictures, colors, characters, and hands-on activities!
 
 Format as JSON:
 {
   "title": "${sectionOutline.title}",
-  "conceptExplanation": "Detailed explanation...",
-  "examples": ["Example 1...", "Example 2..."],
-  "keyTerms": [{"term": "word", "definition": "meaning"}],
+  "conceptExplanation": "VISUAL SCENE DESCRIPTION: Describe a huge, colorful illustration that teaches the concept...",
+  "examples": ["VISUAL EXAMPLE 1: Full-page illustration showing...", "VISUAL EXAMPLE 2: Interactive visual scene with..."],
+  "keyTerms": [{"term": "word", "definition": "VISUAL: Picture shows..."}],
   "summary": "Brief summary of key points"
 }
 
@@ -562,12 +740,34 @@ Content:`;
     analysis: { suggestedGradeBand: string }, 
     topic: string
   ): Promise<Exercise[]> {
+    // Check if this is a fraction-related topic
+    if (this.isFractionTopic(section.title, topic)) {
+      return await this.generateVisualFractionExercises(section, analysis);
+    }
+
+    // Get grade-specific exercise constraints
+    const gradeConstraints = GradeLevelContentService.getContentConstraints(
+      analysis.suggestedGradeBand as 'k-2' | '3-5' | '6-8' | '9-10' | '11-12' | 'adult'
+    );
+
+    // Generate traditional text-based exercises for non-fraction topics
     const prompt = `
 Create 3 diverse exercises for the section: "${section.title}"
 
 Topic: ${topic}
 Grade Level: ${analysis.suggestedGradeBand}
 Section Content: ${section.conceptExplanation?.substring(0, 200)}...
+
+${gradeConstraints}
+
+Generate exercises with different types appropriate for this grade level.
+
+CRITICAL EXERCISE REQUIREMENTS:
+- Use ONLY exercise types listed as "effective" in the constraints above
+- AVOID all exercise types listed as "inappropriate" 
+- Keep problems within the maximum steps specified
+- Use vocabulary appropriate for the grade level
+- Ensure problems are concrete and understandable
 
 Generate exercises with different types:
 1. Multiple choice (4 options)
@@ -603,6 +803,86 @@ Exercises:`;
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Check if the topic should use visual fraction generation
+   */
+  private isFractionTopic(sectionTitle: string, topic: string): boolean {
+    const fractionKeywords = [
+      'fraction', 'fractions', 'fractional',
+      'part', 'parts', 'whole',
+      'numerator', 'denominator',
+      'half', 'halves', 'third', 'thirds', 'fourth', 'fourths',
+      'quarter', 'quarters', 'eighth', 'eighths'
+    ];
+
+    const searchText = `${sectionTitle} ${topic}`.toLowerCase();
+    return fractionKeywords.some(keyword => searchText.includes(keyword));
+  }
+
+  /**
+   * Generate visual fraction exercises using the Enhanced Math Content Service
+   */
+  private async generateVisualFractionExercises(
+    section: SectionContent,
+    analysis: { suggestedGradeBand: string }
+  ): Promise<Exercise[]> {
+    try {
+      // Extract grade level from grade band
+      const gradeLevel = this.extractGradeLevel(analysis.suggestedGradeBand);
+      
+      // Generate visual fraction problems
+      const mathProblems = await this.enhancedMathService.generateMathProblems({
+        problem_type: 'fractions',
+        topic: section.title,
+        difficulty: 'easy',
+        grade_level: gradeLevel,
+        count: 3,
+        format: 'plain',
+        include_answer_key: true
+      });
+
+      // Convert MathProblem objects to Exercise objects
+      return mathProblems.map((problem) => {
+        // Type assertion for visual problems
+        const visualProblem = problem as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+        
+        return {
+          type: 'short_answer' as const,
+          prompt: problem.problem,
+          correctAnswer: problem.solution,
+          explanation: problem.steps?.join(' ') || 'Visual fraction problem',
+          // Store visual properties for later use in PDF generation
+          visualData: visualProblem.is_visual ? {
+            visual_type: visualProblem.visual_type || '',
+            shape: visualProblem.shape || '',
+            total_parts: visualProblem.total_parts || 4,
+            shaded_parts: visualProblem.shaded_parts || 1
+          } : undefined
+        };
+      });
+    } catch (error) {
+      debugSystem.error('Content Generation Orchestrator', 'Failed to generate visual fraction exercises', error);
+      // Fallback to regular exercises if visual generation fails
+      return [];
+    }
+  }
+
+  /**
+   * Extract numeric grade level from grade band string
+   */
+  private extractGradeLevel(gradeBand: string): number {
+    const gradeMap: Record<string, number> = {
+      'k-2': 1,
+      '3-5': 4,
+      '6-8': 7,
+      '9-10': 9,
+      '11-12': 11,
+      'adult': 12
+    };
+    
+    return gradeMap[gradeBand.toLowerCase()] || 4;
   }
 
   private async generateSolution(exercise: Exercise): Promise<ExerciseSolution> {
@@ -652,26 +932,145 @@ Misconceptions:`;
     }
   }
 
-  private async validateContent(): Promise<ContentValidation> {
-    // Simplified validation - in production this would be more comprehensive
+  private async validateContent(context: GenerationContext): Promise<ContentValidation> {
+    const sections = context.artifacts.sections as SectionContent[];
+    const gradeBand = context.state.gradeBand as 'k-2' | '3-5' | '6-8' | '9-10' | '11-12' | 'adult';
+    
+    const issues: string[] = [];
+    const suggestions: string[] = [];
+    let totalViolations = 0;
+
+    // Validate each section for grade-level appropriateness
+    if (sections && sections.length > 0) {
+      sections.forEach((section, index) => {
+        if (section.conceptExplanation) {
+          const validation = GradeLevelContentService.validateContent(
+            section.conceptExplanation,
+            gradeBand
+          );
+          
+          if (!validation.isAppropriate) {
+            totalViolations += validation.violations.length;
+            issues.push(`Section ${index + 1} (${section.title}): ${validation.violations.join(', ')}`);
+            suggestions.push(...validation.suggestions.map(s => `Section ${index + 1}: ${s}`));
+          }
+        }
+      });
+    }
+
+    // Calculate overall score based on violations
+    const maxPossibleViolations = sections ? sections.length * 3 : 3; // Assume max 3 violations per section
+    const violationRatio = totalViolations / maxPossibleViolations;
+    const overallScore = Math.max(20, Math.round((1 - violationRatio) * 100));
+
+    if (totalViolations === 0) {
+      suggestions.push('Content appears to be appropriate for the specified grade level');
+    } else {
+      suggestions.push(`Content needs revision for grade level ${gradeBand.toUpperCase()}`);
+    }
+
     return {
-      overallScore: 85,
-      issues: [],
-      suggestions: ['Content generated successfully'],
+      overallScore,
+      issues,
+      suggestions,
       bloomDistribution: { understand: 0.4, apply: 0.3, analyze: 0.3 },
-      readabilityScore: 80,
-      accessibilityScore: 85
+      readabilityScore: overallScore,
+      accessibilityScore: overallScore
     };
+  }
+
+  /**
+   * Extract visual descriptions from section content for image generation
+   */
+  private extractVisualDescriptions(section: SectionContent): string[] {
+    const descriptions: string[] = [];
+    
+    // Look for VISUAL SCENE DESCRIPTION patterns in the content
+    const visualPattern = /VISUAL SCENE DESCRIPTION:\s*([^.!?]*[.!?])/gi;
+    
+    // Search in concept explanation
+    const conceptMatches = section.conceptExplanation.match(visualPattern);
+    if (conceptMatches) {
+      conceptMatches.forEach(match => {
+        const description = match.replace(/VISUAL SCENE DESCRIPTION:\s*/i, '').trim();
+        if (description) descriptions.push(description);
+      });
+    }
+    
+    // Search in examples
+    section.examples?.forEach(example => {
+      const exampleMatches = example.match(visualPattern);
+      if (exampleMatches) {
+        exampleMatches.forEach(match => {
+          const description = match.replace(/VISUAL SCENE DESCRIPTION:\s*/i, '').trim();
+          if (description) descriptions.push(description);
+        });
+      }
+    });
+    
+    // If no visual descriptions found, create some based on the section content
+    if (descriptions.length === 0) {
+      // Create a header image description based on the section title
+      descriptions.push(`Colorful educational illustration for "${section.title}" suitable for young learners`);
+      
+      // Add more specific descriptions based on key terms
+      if (section.keyTerms && section.keyTerms.length > 0) {
+        const firstTerm = section.keyTerms[0];
+        descriptions.push(`Simple cartoon illustration showing ${firstTerm.term} with bright colors and clear details`);
+      }
+    }
+    
+    return descriptions;
   }
 
   private async assembleWorkbook(context: GenerationContext): Promise<Record<string, unknown>> {
     const outline = context.artifacts.outline as WorkbookOutline;
+    const sections = context.artifacts.sections as SectionContent[];
+    
+    // Process sections to replace visual descriptions with actual images
+    const processedSections = sections.map(section => {
+      let processedConceptExplanation = section.conceptExplanation;
+      let processedExamples = [...section.examples || []];
+      
+      // If section has images, replace visual descriptions with image references
+      if (section.images && section.images.length > 0) {
+        section.images.forEach((image) => {
+          const visualPattern = /VISUAL SCENE DESCRIPTION:\s*([^.!?]*[.!?])/i;
+          
+          // Replace in concept explanation
+          if (visualPattern.test(processedConceptExplanation)) {
+            processedConceptExplanation = processedConceptExplanation.replace(
+              visualPattern,
+              `[IMAGE:${image.url}:${image.description}]`
+            );
+          }
+          
+          // Replace in examples
+          processedExamples = processedExamples.map(example => {
+            if (visualPattern.test(example)) {
+              return example.replace(
+                visualPattern,
+                `[IMAGE:${image.url}:${image.description}]`
+              );
+            }
+            return example;
+          });
+        });
+      }
+      
+      return {
+        ...section,
+        conceptExplanation: processedConceptExplanation,
+        examples: processedExamples
+      };
+    });
+    
     return {
       id: context.workbookId,
       title: outline?.title || 'Generated Workbook',
       topic: context.input.topic,
       learningObjectives: context.artifacts.learningObjectives || [],
-      sections: context.artifacts.sections || [],
+      sections: processedSections,
       metadata: {
         generatedAt: new Date(),
         topicAnalysis: context.artifacts.topicAnalysis,

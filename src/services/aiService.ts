@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { ModelResponse, ModelConfig } from '@/types';
 import { debugSystem } from '../utils/debugSystem';
+import { VertexAIService, VertexAIRequest, ContentGenerationResult } from './integration/VertexAIService';
 
 // AI Model configurations
 const modelConfigs: Record<string, ModelConfig> = {
@@ -28,33 +29,62 @@ const modelConfigs: Record<string, ModelConfig> = {
     maxTokens: 4000,
     temperature: 0.7,
     timeout: 30000
+  },
+  'dall-e-3': {
+    name: 'dall-e-3',
+    endpoint: 'https://api.openai.com/v1/images/generations',
+    apiKey: process.env.OPENAI_API_KEY || '',
+    maxTokens: 1000,
+    temperature: 0.7,
+    timeout: 60000
   }
 };
 
 export class AIService {
-  private openai: OpenAI;
-  private anthropic: Anthropic;
+  private openai?: OpenAI;
+  private anthropic?: Anthropic;
+  private vertexAI?: VertexAIService;
 
   constructor() {
+    const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
+    const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY;
+    const hasVertexAI = !!process.env.GOOGLE_VERTEX_AI_PROJECT_ID;
+
     debugSystem.info('AI Service', 'Initializing AI Service', {
-      hasOpenAIKey: !!process.env.OPENAI_API_KEY,
-      hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
+      hasOpenAIKey,
+      hasAnthropicKey,
+      hasVertexAI,
       availableModels: Object.keys(modelConfigs),
       timestamp: new Date().toISOString()
     });
 
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
-    });
+    // Initialize services only if credentials are available
+    if (hasOpenAIKey) {
+      this.openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY
+      });
+    }
 
-    this.anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY
-    });
+    if (hasAnthropicKey) {
+      this.anthropic = new Anthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY
+      });
+    }
+
+    if (hasVertexAI) {
+      this.vertexAI = new VertexAIService();
+    }
 
     debugSystem.info('AI Service', 'AI Service initialized successfully', {
       openaiConfigured: !!this.openai,
-      anthropicConfigured: !!this.anthropic
+      anthropicConfigured: !!this.anthropic,
+      vertexAIConfigured: !!this.vertexAI
     });
+
+    // If no services are available, throw an error
+    if (!this.openai && !this.anthropic && !this.vertexAI) {
+      throw new Error('No AI services configured. Please set up at least one: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_VERTEX_AI_PROJECT_ID');
+    }
   }
 
   /**
@@ -69,6 +99,25 @@ export class AIService {
       systemMessage?: string;
     } = {}
   ): Promise<ModelResponse> {
+    // Check if we're in mock mode
+    if (process.env.USE_MOCK_AI_RESPONSES === 'true') {
+      debugSystem.info('AI Service', 'Using mock AI response (no API calls)', { model });
+      
+      // Generate a realistic mock response based on the prompt
+      const mockContent = this.generateMockResponse(prompt);
+      
+      return {
+        content: mockContent,
+        model,
+        tokenUsage: {
+          input: Math.floor(prompt.length / 4),
+          output: Math.floor(mockContent.length / 4),
+          total: Math.floor((prompt.length + mockContent.length) / 4)
+        },
+        finishReason: 'stop'
+      };
+    }
+
     const perfLabel = `ai.generateCompletion.${model}`;
     debugSystem.startPerformance(perfLabel);
     debugSystem.info('AI Service', `Starting completion generation with ${model}`, {
@@ -151,6 +200,9 @@ export class AIService {
     messages.push({ role: 'user', content: prompt });
 
     try {
+      if (!this.openai) {
+        throw new Error('OpenAI client not initialized');
+      }
       const response = await this.openai.chat.completions.create({
         model,
         messages,
@@ -218,6 +270,9 @@ export class AIService {
     });
 
     try {
+      if (!this.anthropic) {
+        throw new Error('Anthropic client not initialized');
+      }
       const response = await this.anthropic.messages.create({
         model,
         max_tokens: options.maxTokens || 4000,
@@ -411,5 +466,265 @@ export class AIService {
       });
       throw error;
     }
+  }
+
+  private generateMockResponse(prompt: string): string {
+    // Generate realistic mock responses based on prompt content
+    const promptLower = prompt.toLowerCase();
+    
+    if (promptLower.includes('learning objective')) {
+      return JSON.stringify({
+        objectives: [
+          "Students will be able to add and subtract fractions with like denominators.",
+          "Students will understand the concept of equivalent fractions.",
+          "Students will apply fraction knowledge to solve real-world problems."
+        ]
+      });
+    }
+    
+    if (promptLower.includes('content')) {
+      return `# Introduction to Fractions
+
+Fractions represent parts of a whole. In this lesson, we'll explore:
+
+## Key Concepts
+- Numerator: the top number
+- Denominator: the bottom number
+- Equivalent fractions
+
+## Examples
+- 1/2 = 2/4 = 3/6
+- 3/4 + 1/4 = 4/4 = 1`;
+    }
+    
+    if (promptLower.includes('exercise') || promptLower.includes('problem')) {
+      return JSON.stringify({
+        exercises: [
+          {
+            type: "multiple-choice",
+            question: "What is 1/4 + 1/4?",
+            options: ["1/8", "2/4", "1/2", "2/8"],
+            correct: 1,
+            explanation: "When adding fractions with the same denominator, add the numerators: 1 + 1 = 2, so 1/4 + 1/4 = 2/4 = 1/2"
+          }
+        ]
+      });
+    }
+    
+    // Default mock response
+    return "This is a mock AI response for testing purposes. The actual content would depend on the specific prompt provided.";
+  }
+
+  /**
+   * Generate an image using DALL-E
+   */
+  async generateImage(
+    prompt: string,
+    options: {
+      size?: '1024x1024' | '1792x1024' | '1024x1792';
+      quality?: 'standard' | 'hd';
+      style?: 'vivid' | 'natural';
+    } = {}
+  ): Promise<{
+    url: string;
+    revised_prompt?: string;
+  }> {
+    const perfLabel = 'ai.generateImage';
+    debugSystem.startPerformance(perfLabel);
+    debugSystem.info('AI Service', 'Starting image generation', {
+      promptLength: prompt.length,
+      options,
+      timestamp: new Date().toISOString()
+    });
+
+    // Check if we're in mock mode
+    if (process.env.USE_MOCK_AI_RESPONSES === 'true') {
+      debugSystem.info('AI Service', 'Using mock image response (no API calls)');
+      return {
+        url: 'https://via.placeholder.com/1024x1024/FF6B6B/FFFFFF?text=Mock+Image+Generated',
+        revised_prompt: prompt
+      };
+    }
+
+    if (!this.openai) {
+      throw new Error('OpenAI client not initialized - missing API key');
+    }
+
+    try {
+      const response = await this.openai.images.generate({
+        model: 'dall-e-3',
+        prompt: this.optimizeImagePrompt(prompt),
+        size: options.size || '1024x1024',
+        quality: options.quality || 'standard',
+        style: options.style || 'vivid',
+        n: 1
+      });
+
+      debugSystem.endPerformance(perfLabel);
+      
+      if (!response.data || response.data.length === 0) {
+        throw new Error('No image generated');
+      }
+
+      const result = {
+        url: response.data[0].url || '',
+        revised_prompt: response.data[0].revised_prompt
+      };
+
+      debugSystem.info('AI Service', 'Image generation completed', {
+        success: true,
+        imageUrl: result.url,
+        revisedPrompt: result.revised_prompt
+      });
+
+      return result;
+
+    } catch (error) {
+      debugSystem.endPerformance(perfLabel);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      debugSystem.error('AI Service', 'Image generation failed', { error: errorMessage }, error instanceof Error ? error : undefined);
+      throw new Error(`Image generation failed: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Optimize image prompts for K-2 educational content
+   */
+  private optimizeImagePrompt(prompt: string): string {
+    // Enhance prompts for child-friendly, educational visuals
+    const k2Enhancements = [
+      'cartoon style',
+      'bright colors',
+      'simple shapes',
+      'child-friendly',
+      'educational',
+      'large clear details',
+      'no text in image',
+      'colorful and engaging'
+    ];
+
+    // Check if prompt already includes style instructions
+    const hasStyleInstructions = k2Enhancements.some(enhancement => 
+      prompt.toLowerCase().includes(enhancement.toLowerCase())
+    );
+
+    if (!hasStyleInstructions) {
+      return `${prompt}, cartoon style, bright colors, child-friendly, educational, simple clear design`;
+    }
+
+    return prompt;
+  }
+
+  /**
+   * Generate multiple images for a workbook section
+   */
+  async generateSectionImages(
+    sectionTitle: string,
+    visualDescriptions: string[],
+    gradeBand: string
+  ): Promise<Array<{ description: string; url: string; revised_prompt?: string }>> {
+    debugSystem.info('AI Service', 'Generating section images', {
+      sectionTitle,
+      imageCount: visualDescriptions.length,
+      gradeBand
+    });
+
+    const images = [];
+
+    for (let i = 0; i < visualDescriptions.length; i++) {
+      const description = visualDescriptions[i];
+      
+      try {
+        // Create age-appropriate prompt
+        const agePrompt = this.createAgeAppropriateImagePrompt(description, gradeBand);
+        
+        debugSystem.info('AI Service', `Generating image ${i + 1}/${visualDescriptions.length}`, {
+          originalDescription: description,
+          optimizedPrompt: agePrompt
+        });
+
+        const image = await this.generateImage(agePrompt, {
+          size: '1024x1024',
+          quality: 'standard',
+          style: 'vivid'
+        });
+
+        images.push({
+          description,
+          url: image.url,
+          revised_prompt: image.revised_prompt
+        });
+
+        // Add small delay to avoid rate limiting
+        if (i < visualDescriptions.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
+      } catch (error) {
+        debugSystem.error('AI Service', `Failed to generate image ${i + 1}`, {
+          description,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+
+        // Add placeholder for failed image
+        images.push({
+          description,
+          url: 'https://via.placeholder.com/1024x1024/FF6B6B/FFFFFF?text=Image+Generation+Failed',
+          revised_prompt: description
+        });
+      }
+    }
+
+    debugSystem.info('AI Service', 'Section image generation completed', {
+      totalImages: images.length,
+      successfulImages: images.filter(img => !img.url.includes('placeholder')).length
+    });
+
+    return images;
+  }
+
+  /**
+   * Create age-appropriate image prompts
+   */
+  private createAgeAppropriateImagePrompt(description: string, gradeBand: string): string {
+    const baseEnhancements = [
+      'high-quality digital art',
+      'vibrant colors',
+      'clean simple design',
+      'educational illustration'
+    ];
+
+    let ageSpecificEnhancements: string[] = [];
+
+    switch (gradeBand) {
+      case 'k-2':
+        ageSpecificEnhancements = [
+          'cartoon style for young children',
+          'very bright cheerful colors',
+          'large simple shapes',
+          'friendly characters with big expressive eyes',
+          'no scary or complex elements',
+          'playful and fun atmosphere'
+        ];
+        break;
+      case '3-5':
+        ageSpecificEnhancements = [
+          'colorful illustration style',
+          'clear detailed graphics',
+          'engaging characters',
+          'educational and informative'
+        ];
+        break;
+      default:
+        ageSpecificEnhancements = [
+          'professional educational illustration',
+          'clear informative graphics',
+          'appropriate detail level'
+        ];
+    }
+
+    const allEnhancements = [...baseEnhancements, ...ageSpecificEnhancements];
+    
+    return `${description}, ${allEnhancements.join(', ')}, no text or words in the image`;
   }
 }

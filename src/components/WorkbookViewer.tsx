@@ -37,6 +37,13 @@ interface WorkbookSection {
   summary: string;
   exercises?: Exercise[];
   misconceptions?: Misconception[];
+  __imageData?: Array<{
+    url: string;
+    localPath?: string;
+    base64Data?: string;
+    description: string;
+    placement: 'header' | 'inline';
+  }>;
 }
 
 interface Workbook {
@@ -57,6 +64,7 @@ interface Workbook {
       passed: boolean;
       details: string[];
     };
+    __hasImages?: boolean;
   };
 }
 
@@ -180,7 +188,6 @@ export function WorkbookViewer({ workbook }: WorkbookViewerProps) {
 
   const exportAsPDF = async () => {
     try {
-      // Convert the workbook to the proper Workbook type for PDFMake
       const workbookForPdf: WorkbookType = {
         id: workbook.id,
         title: workbook.title,
@@ -209,43 +216,54 @@ export function WorkbookViewer({ workbook }: WorkbookViewerProps) {
           createdAt: new Date(),
           updatedAt: new Date()
         })),
-        sections: workbook.sections.map((section, index) => ({
-          id: `section-${index}`,
-          title: section.title,
-          purpose: 'concept_explanation',
-          order: index,
-          conceptExplanation: section.conceptExplanation,
-          examples: section.examples || [],
-          keyTerms: section.keyTerms || [],
-          exercises: (section.exercises || []).map((exercise, exIndex) => ({
-            id: `ex-${index}-${exIndex}`,
-            type: 'open_response',
-            prompt: exercise.prompt,
-            instructions: '',
-            mediaRefs: [],
-            options: exercise.options?.map((opt, optIndex) => ({
-              id: `opt-${optIndex}`,
-              text: opt,
-              isCorrect: false
+        sections: workbook.sections.map((section, index) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const convertedSection: any = {
+            id: `section-${index}`,
+            title: section.title,
+            purpose: 'concept_explanation' as const,
+            order: index,
+            conceptExplanation: section.conceptExplanation,
+            examples: section.examples || [],
+            keyTerms: section.keyTerms || [],
+            exercises: (section.exercises || []).map((exercise, exIndex) => ({
+              id: `ex-${index}-${exIndex}`,
+              type: 'open_response',
+              prompt: exercise.prompt,
+              instructions: '',
+              mediaRefs: [],
+              options: exercise.options?.map((opt, optIndex) => ({
+                id: `opt-${optIndex}`,
+                text: opt,
+                isCorrect: false
+              })),
+              correctAnswer: exercise.correctAnswer,
+              rationale: exercise.explanation || '',
+              commonMistakes: [],
+              bloomLevel: 'understand',
+              difficultyLevel: 'basic',
+              estimatedTimeMinutes: 5,
+              objectiveIds: [],
+              createdAt: new Date(),
+              updatedAt: new Date()
             })),
-            correctAnswer: exercise.correctAnswer,
-            rationale: exercise.explanation,
-            commonMistakes: [],
-            bloomLevel: 'understand',
-            difficultyLevel: 'basic',
-            estimatedTimeMinutes: 5,
-            objectiveIds: [],
+            misconceptions: [],
+            summary: section.summary,
+            crossLinks: [],
+            estimatedTimeMinutes: 30,
+            difficultyProgression: ['basic'],
             createdAt: new Date(),
             updatedAt: new Date()
-          })),
-          misconceptions: [],
-          summary: section.summary,
-          crossLinks: [],
-          estimatedTimeMinutes: 30,
-          difficultyProgression: ['basic'],
-          createdAt: new Date(),
-          updatedAt: new Date()
-        })),
+          };
+
+          // Preserve image data from the original section if it exists
+          if (section.__imageData) {
+            convertedSection.__imageData = section.__imageData;
+            console.log(`🎨 [PDF] Preserving image data for section: ${section.title}`, convertedSection.__imageData);
+          }
+
+          return convertedSection;
+        }),
         formativeAssessments: [],
         summativeAssessments: [],
         glossary: [],
@@ -278,7 +296,14 @@ export function WorkbookViewer({ workbook }: WorkbookViewerProps) {
         },
         createdAt: new Date(),
         updatedAt: new Date()
-      };
+      } as WorkbookType & { __hasImages?: boolean };
+
+      // Add the image flag
+      if (workbook.metadata.__hasImages) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (workbookForPdf as any).__hasImages = true;
+        console.log('🎨 [PDF] Workbook has images - enabling image processing');
+      }
 
       // Generate PDF using PDFMake
       const pdfBlob = await SimplePdfGenerator.generateWorkbookPdf(workbookForPdf);

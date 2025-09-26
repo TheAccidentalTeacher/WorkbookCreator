@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { WorkbookGenerationForm } from '../../components/WorkbookGenerationForm';
+import { HierarchicalTopicSelector } from '../../components/HierarchicalTopicSelector';
 import { WorkbookViewer } from '../../components/WorkbookViewer';
 import { GenerationProgress } from '../../components/GenerationProgress';
+import { VisualWorksheetDemo } from '../../components/VisualWorksheetDemo';
 import { debug } from '../../utils/debugSystem';
 
 export default function GeneratePage() {
@@ -25,7 +26,16 @@ export default function GeneratePage() {
     topic: string;
     gradeBand: string;
     subjectDomain?: string;
+    textDensity?: string;
+    visualOptions?: {
+      includeIllustrations: boolean;
+      includeDiagrams: boolean;
+      includeInteractiveElements: boolean;
+      includeColorCoding: boolean;
+      creativityLevel: string;
+    };
     options?: Record<string, unknown>;
+    generationMode?: 'quick' | 'comprehensive';
   }) => {
     debug.performance.start('workbook-generation');
     debug.info('GeneratePage', 'Starting workbook generation', { formData });
@@ -48,6 +58,15 @@ export default function GeneratePage() {
         topic: formData.topic,
         gradeBand: formData.gradeBand,
         domain: formData.subjectDomain,
+        generationMode: formData.generationMode || 'comprehensive',
+        textDensity: formData.textDensity || 'minimal',
+        visualOptions: formData.visualOptions || {
+          includeIllustrations: true,
+          includeDiagrams: true,
+          includeInteractiveElements: true,
+          includeColorCoding: true,
+          creativityLevel: 'high'
+        },
         objectiveCount: formData.options?.objectiveCount || 3,
         sectionCount: formData.options?.sectionCount || 4,
         includeExercises: formData.options?.includeExercises !== false,
@@ -65,6 +84,15 @@ export default function GeneratePage() {
           topic: formData.topic,
           gradeBand: formData.gradeBand,
           domain: formData.subjectDomain,
+          generationMode: formData.generationMode || 'comprehensive',
+          textDensity: formData.textDensity || 'minimal',
+          visualOptions: formData.visualOptions || {
+            includeIllustrations: true,
+            includeDiagrams: true,
+            includeInteractiveElements: true,
+            includeColorCoding: true,
+            creativityLevel: 'high'
+          },
           objectiveCount: formData.options?.objectiveCount || 3,
           sectionCount: formData.options?.sectionCount || 4,
           includeExercises: formData.options?.includeExercises !== false,
@@ -111,6 +139,15 @@ export default function GeneratePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Visual Worksheet Demo Section */}
+      <div className="container mx-auto px-4 py-8">
+        <VisualWorksheetDemo />
+      </div>
+
+      {/* Separator */}
+      <div className="border-t border-gray-200 my-8"></div>
+
+      {/* Original Generation Interface */}
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-6xl mx-auto">
           <h1 className="text-3xl font-bold text-center mb-8 text-gray-800">
@@ -118,19 +155,18 @@ export default function GeneratePage() {
           </h1>
 
           <div className="grid lg:grid-cols-3 gap-8">
-            {/* Generation Form */}
-            <div className="lg:col-span-1">
+            {/* Topic Selection */}
+            <div className="lg:col-span-2">
               <div className="bg-white rounded-lg shadow-lg p-6">
-                <h2 className="text-xl font-semibold mb-4">Workbook Configuration</h2>
-                <WorkbookGenerationForm 
-                  onGenerate={handleGenerate}
+                <HierarchicalTopicSelector 
+                  onTopicSelect={handleGenerate}
                   isGenerating={isGenerating}
                 />
               </div>
             </div>
 
             {/* Progress and Results */}
-            <div className="lg:col-span-2">
+            <div className="lg:col-span-1">
               {isGenerating && (
                 <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
                   <GenerationProgress 
@@ -177,7 +213,7 @@ export default function GeneratePage() {
                   <div className="text-center text-gray-500">
                     <div className="text-6xl mb-4">📚</div>
                     <h3 className="text-lg font-medium mb-2">Ready to Generate</h3>
-                    <p>Fill out the form on the left to create your pedagogical workbook.</p>
+                    <p>Select your grade level and topic to create your pedagogical workbook.</p>
                     <div className="mt-4 text-sm text-gray-400">
                       💡 Tip: Open F12 Developer Console to see detailed debug information
                     </div>

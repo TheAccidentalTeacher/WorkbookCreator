@@ -66,6 +66,94 @@ Check API availability and status.
 }
 ```
 
+### Phase 2 Testing & Integration
+
+#### GET /api/test-phase2
+
+Test Phase 2 AI services health and integration.
+
+**Query Parameters:**
+- `type` (string, optional): Test type - `health` or `full`
+
+**Health Check Response:**
+```json
+{
+  "status": "success",
+  "message": "Phase 2 health check completed",
+  "services": {
+    "vertex": { "status": "operational", "configured": true },
+    "symbolab": { "status": "not_configured", "configured": false },
+    "educationalImages": { "status": "operational", "configured": true }
+  },
+  "coordinator": { "status": "operational" },
+  "validation": { "status": "operational" },
+  "timestamp": "2024-01-15T10:30:00.000Z"
+}
+```
+
+**Full Test Response:**
+```json
+{
+  "status": "success",
+  "message": "Phase 2 full test completed successfully",
+  "results": {
+    "healthCheck": { "passed": true },
+    "serviceTests": {
+      "vertex": { "passed": true, "response": "Generated educational content" },
+      "symbolab": { "passed": false, "error": "API key not configured" },
+      "educationalImages": { "passed": true, "response": "Found 5 educational images" }
+    },
+    "coordinatorTest": { "passed": true },
+    "validationTest": { "passed": true, "score": 0.85 }
+  },
+  "timestamp": "2024-01-15T10:30:00.000Z"
+}
+```
+
+#### POST /api/test-phase2
+
+Test Phase 2 content generation with specific parameters.
+
+**Request Body:**
+```json
+{
+  "subject": "mathematics",
+  "gradeLevel": "elementary",
+  "topic": "Introduction to Fractions",
+  "difficulty": "beginner",
+  "contentType": "explanation"
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Content generated successfully",
+  "content": {
+    "sections": [
+      {
+        "title": "Understanding Fractions",
+        "type": "explanation",
+        "content": "Fractions represent parts of a whole number...",
+        "source": "vertex-ai"
+      }
+    ],
+    "validation": {
+      "educationalValue": 0.85,
+      "ageAppropriate": true,
+      "contentQuality": 0.90,
+      "safetyCheck": "passed"
+    }
+  },
+  "metadata": {
+    "generationTime": 2.5,
+    "servicesUsed": ["vertex-ai"],
+    "fallbacksTriggered": []
+  }
+}
+```
+
 ### AI Content Generation
 
 #### POST /api/ai/generate-workbook
