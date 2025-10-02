@@ -1,6 +1,7 @@
 import { AIService } from './aiService';
-import { TextDensityLevel, VisualContentOptions } from './visualContentService';
+import { TextDensityLevel, VisualContentOptions, VisualContentService } from './visualContentService';
 import { educationalImageSearchService } from './educationalImageSearchService';
+import { SubjectDomainType, GradeBandType } from '../types';
 
 export interface SimpleWorkbookRequest {
   topic: string;
@@ -79,6 +80,14 @@ export class SimpleGenerationEngine {
 
     // Parse the response
     const workbookData = this.parseWorkbookResponse(response.content);
+    
+    console.log('🔍 [DEBUG] AI Response Analysis:');
+    console.log('  - Response length:', response.content.length);
+    console.log('  - Parsed sections:', workbookData.sections.length);
+    console.log('  - Response contains "VISUAL SCENE":', response.content.includes('VISUAL SCENE DESCRIPTION'));
+    
+    // Log first 1000 chars of response to see structure
+    console.log('🔍 [DEBUG] AI Response Sample (first 1000 chars):', response.content.substring(0, 1000));
 
     let apiCalls = 1;
     let totalCost = response.cost || 0;
@@ -86,9 +95,23 @@ export class SimpleGenerationEngine {
     // Generate images if requested and not in fast mode
     let sectionsWithImages = workbookData.sections;
     
-    console.log('🔍 [DEBUG] request.includeImages:', request.includeImages);
-    console.log('🔍 [DEBUG] request.fastMode:', request.fastMode);
-    console.log('🔍 [DEBUG] Will generate images:', request.includeImages && !request.fastMode);
+    console.log('🔍 [DEBUG] Visual Content Generation Analysis:');
+    console.log('  - request.includeImages:', request.includeImages);
+    console.log('  - request.fastMode:', request.fastMode);
+    console.log('  - request.visualOptions:', JSON.stringify(request.visualOptions, null, 2));
+    console.log('  - Will generate images:', request.includeImages && !request.fastMode);
+    console.log('  - Sections generated:', workbookData.sections.length);
+    
+    // Check each section for visual scene descriptions
+    workbookData.sections.forEach((section, index) => {
+      const visualDescriptions = section.content.match(/VISUAL SCENE DESCRIPTION:\s*([^.!?]*[.!?])/gi);
+      console.log(`  - Section ${index + 1} "${section.title}": ${visualDescriptions ? visualDescriptions.length : 0} visual descriptions found`);
+      if (visualDescriptions) {
+        visualDescriptions.forEach((desc, i) => {
+          console.log(`    * Visual ${i + 1}: ${desc.substring(0, 100)}...`);
+        });
+      }
+    });
 
     if (request.includeImages && !request.fastMode) {
       console.log('🎨 Generating images for sections...');
@@ -155,6 +178,29 @@ export class SimpleGenerationEngine {
   private buildCompleteWorkbookPrompt(request: SimpleWorkbookRequest): string {
     const sectionCount = request.pageCount ? Math.max(3, request.pageCount - 1) : 4;
 
+    // Map request properties to proper types
+    const subjectDomain = this.mapSubjectToSubjectDomain(request.subject);
+    const gradeBand = this.mapGradeLevelToGradeBand(request.gradeLevel);
+    const textDensity = request.textDensity || 'minimal';
+
+    // Generate comprehensive visual content instructions if visual options are requested
+    let visualInstructions = '';
+    if (request.includeImages && request.visualOptions) {
+      console.log('🎨 [DEBUG] Generating visual content prompt with:', {
+        textDensity,
+        subject: subjectDomain,
+        gradeBand,
+        visualOptions: request.visualOptions
+      });
+      
+      visualInstructions = VisualContentService.generateVisualContentPrompt(
+        textDensity,
+        subjectDomain,
+        gradeBand,
+        request.visualOptions
+      );
+    }
+
     return `Create a complete educational workbook about "${request.topic}" for ${request.gradeLevel} students in ${request.subject}.
 
 REQUIREMENTS:
@@ -167,12 +213,16 @@ REQUIREMENTS:
 - Use clear, simple sentence structure
 
 ${request.includeImages ? `
+${visualInstructions}
+
 IMAGE GENERATION INSTRUCTIONS:
 - Include "VISUAL SCENE DESCRIPTION: [detailed description]" in content where images should appear
-- Maximum 1-2 image descriptions per section
+- Maximum 2-3 image descriptions per section for ${textDensity} density level
 - Descriptions should be detailed enough for AI image generation
-- Images should be educational, colorful, and age-appropriate
+- Images should be educational, colorful, and age-appropriate for ${request.gradeLevel}
 - No text should appear in the described images
+- Focus on visual learning elements that support the ${subjectDomain} curriculum
+- Create engaging, interactive visual elements that reduce text dependency
 ` : ''}
 
 RESPONSE FORMAT - Return valid JSON only:
@@ -364,6 +414,49 @@ IMPORTANT: Return ONLY the JSON response with no other text, explanations, or ma
     // Combine and create search query
     const searchTerms = [...new Set([...titleWords, ...descriptionWords])].slice(0, 3);
     return searchTerms.join(' ').trim() || subject;
+  }
+
+  /**
+   * Map simple subject string to SubjectDomainType
+   */
+  private mapSubjectToSubjectDomain(subject: string): SubjectDomainType {
+    const subjectMap: { [key: string]: SubjectDomainType } = {
+      'mathematics': 'mathematics',
+      'math': 'mathematics',
+      'science': 'science',
+      'biology': 'science',
+      'chemistry': 'science',
+      'physics': 'science',
+      'english': 'english_language_arts',
+      'english_language_arts': 'english_language_arts',
+      'language_arts': 'english_language_arts',
+      'social_studies': 'social_studies',
+      'history': 'history',
+      'geography': 'geography',
+      'art': 'art',
+      'music': 'music',
+      'physical_education': 'physical_education',
+      'computer_science': 'computer_science',
+      'foreign_language': 'foreign_language'
+    };
+    
+    return subjectMap[subject.toLowerCase()] || 'other';
+  }
+
+  /**
+   * Map grade level string to GradeBandType
+   */
+  private mapGradeLevelToGradeBand(gradeLevel: string): GradeBandType {
+    const gradeBandMap: { [key: string]: GradeBandType } = {
+      'k-2': 'k-2',
+      '3-5': '3-5',
+      '6-8': '6-8',
+      '9-10': '9-10',
+      '11-12': '11-12',
+      'adult': 'adult'
+    };
+    
+    return gradeBandMap[gradeLevel.toLowerCase()] || 'k-2';
   }
 
   /**
