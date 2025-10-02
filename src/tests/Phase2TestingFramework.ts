@@ -47,7 +47,7 @@ export class Phase2TestingFramework {
   async runAllTests(): Promise<Phase2TestReport> {
     console.log('[Phase2Tests] Starting comprehensive Phase 2 testing...');
     
-    const startTime = Date.now();
+    const _startTime = Date.now();
     const testResults: TestResult[] = [];
 
     // Test individual services
@@ -68,7 +68,7 @@ export class Phase2TestingFramework {
     testResults.push(await this.testMathWorksheetGeneration());
     testResults.push(await this.testScienceWorksheetGeneration());
 
-    const endTime = Date.now();
+    const _endTime = Date.now();
     const passedTests = testResults.filter(r => r.success).length;
     const failedTests = testResults.filter(r => !r.success).length;
 

@@ -3,7 +3,7 @@
  * Provides common functionality for all third-party API integrations
  */
 
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 
 interface APIError {
   response?: {

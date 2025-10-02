@@ -1,5 +1,5 @@
 import { AIService } from './aiService';
-import { VisualContentService, TextDensityLevel, VisualContentOptions } from './visualContentService';
+import { TextDensityLevel, VisualContentOptions } from './visualContentService';
 import { educationalImageSearchService } from './educationalImageSearchService';
 
 export interface SimpleWorkbookRequest {

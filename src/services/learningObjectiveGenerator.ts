@@ -432,9 +432,9 @@ Always consider:
   }
 
   private async analyzeObjective(
-    objective: LearningObjective,
-    subjectDomain: SubjectDomainType,
-    gradeBand: GradeBandType
+    _objective: LearningObjective,
+    _subjectDomain: SubjectDomainType,
+    _gradeBand: GradeBandType
   ): Promise<{
     needsImprovement: boolean;
     suggestions: string[];
@@ -451,7 +451,7 @@ Always consider:
 
   private async improveObjective(
     objective: LearningObjective,
-    suggestions: string[]
+    _suggestions: string[]
   ): Promise<LearningObjective> {
     // Placeholder for objective improvement
     // In a full implementation, this would use AI to improve the objective based on suggestions

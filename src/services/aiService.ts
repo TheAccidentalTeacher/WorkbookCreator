@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { ModelResponse, ModelConfig } from '@/types';
 import { debugSystem } from '../utils/debugSystem';
-import { VertexAIService, VertexAIRequest, ContentGenerationResult } from './integration/VertexAIService';
+import { VertexAIService } from './integration/VertexAIService';
 
 // AI Model configurations
 const modelConfigs: Record<string, ModelConfig> = {

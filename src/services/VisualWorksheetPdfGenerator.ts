@@ -5,8 +5,92 @@
 
 import { VisualFractionGenerator, VisualProblem } from './VisualFractionGenerator';
 
+// TypeScript interfaces for pdfMake
+interface PdfMakeStatic {
+  createPdf(documentDefinition: PdfDocumentDefinition): {
+    download(filename?: string): void;
+    getBlob(callback: (result: Blob) => void): void;
+  };
+  vfs: Record<string, string>;
+}
+
+interface PdfDocumentDefinition {
+  content: PdfContent[];
+  pageSize?: string;
+  pageMargins?: number | [number, number] | [number, number, number, number];
+  styles?: Record<string, PdfStyle>;
+  header?: PdfContent;
+  footer?: PdfContent;
+}
+
+interface PdfContent {
+  text?: string;
+  table?: {
+    body: PdfTableCell[][];
+    widths?: (string | number)[];
+    heights?: (string | number)[];
+  };
+  columns?: PdfColumn[];
+  stack?: PdfContent[];
+  canvas?: PdfCanvasElement[];
+  style?: string;
+  pageBreak?: 'before' | 'after';
+  margin?: number | [number, number] | [number, number, number, number];
+  alignment?: 'left' | 'center' | 'right' | 'justify';
+  width?: string | number;
+}
+
+interface PdfColumn {
+  text?: string;
+  stack?: PdfContent[];
+  canvas?: PdfCanvasElement[];
+  width?: string | number;
+  style?: string;
+  alignment?: 'left' | 'center' | 'right' | 'justify';
+}
+
+interface PdfTableCell {
+  text?: string;
+  canvas?: PdfCanvasElement[];
+  style?: string;
+  alignment?: 'left' | 'center' | 'right' | 'justify';
+  colSpan?: number;
+  rowSpan?: number;
+}
+
+interface PdfCanvasElement {
+  type: 'rect' | 'line' | 'ellipse' | 'polyline';
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  x1?: number;
+  y1?: number;
+  x2?: number;
+  y2?: number;
+  r1?: number; // for ellipse
+  r2?: number; // for ellipse
+  points?: Array<{ x: number; y: number }>;
+  lineWidth?: number;
+  lineColor?: string;
+  color?: string;
+}
+
+interface VisualElement {
+  type: string;
+  totalParts: number;
+  shadedParts: number;
+}
+
+interface PdfStyle {
+  fontSize?: number;
+  bold?: boolean;
+  alignment?: 'left' | 'center' | 'right' | 'justify';
+  margin?: number | [number, number] | [number, number, number, number];
+}
+
 export class VisualWorksheetPdfGenerator {
-  private static pdfMake: any = null;
+  private static pdfMake: PdfMakeStatic | null = null;
   private visualGenerator: VisualFractionGenerator;
 
   constructor() {
@@ -16,7 +100,7 @@ export class VisualWorksheetPdfGenerator {
   /**
    * Initialize PDFMake with fonts (client-side only)
    */
-  private static async initializePdfMake() {
+  private static async initializePdfMake(): Promise<PdfMakeStatic> {
     if (this.pdfMake) return this.pdfMake;
     
     if (typeof window === 'undefined') {
@@ -24,14 +108,14 @@ export class VisualWorksheetPdfGenerator {
     }
     
     // Dynamic imports for client-side only
-    const pdfMakeModule = await import('pdfmake/build/pdfmake') as any;
-    const pdfFontsModule = await import('pdfmake/build/vfs_fonts') as any;
+    const pdfMakeModule = await import('pdfmake/build/pdfmake') as { default?: PdfMakeStatic } & PdfMakeStatic;
+    const pdfFontsModule = await import('pdfmake/build/vfs_fonts') as { default?: { vfs: Record<string, string> } } & { vfs: Record<string, string> };
     
-    const pdfMake = (pdfMakeModule as any).default || pdfMakeModule;
-    const vfs = (pdfFontsModule as any).default || pdfFontsModule;
+    const pdfMake = pdfMakeModule.default || pdfMakeModule;
+    const vfs = pdfFontsModule.default || pdfFontsModule;
     
     // Set up fonts
-    pdfMake.vfs = vfs.pdfMake?.vfs || vfs.vfs || vfs;
+    pdfMake.vfs = (vfs as { pdfMake?: { vfs: Record<string, string> } }).pdfMake?.vfs || (vfs as { vfs: Record<string, string> }).vfs || vfs;
     
     this.pdfMake = pdfMake;
     return pdfMake;
@@ -60,29 +144,29 @@ export class VisualWorksheetPdfGenerator {
         {
           columns: [
             { text: 'Name: ________________________', style: 'nameField' },
-            { text: `Date: ____________`, style: 'dateField', alignment: 'right' }
+            { text: `Date: ____________`, style: 'dateField', alignment: 'right' as const }
           ],
-          margin: [0, 0, 0, 20]
+          margin: [0, 0, 0, 20] as [number, number, number, number]
         },
         
         // Title
         {
           text: worksheetPage.title,
           style: 'title',
-          alignment: 'center',
-          margin: [0, 0, 0, 25]
+          alignment: 'center' as const,
+          margin: [0, 0, 0, 25] as [number, number, number, number]
         },
         
         // Problems in grid layout
         ...this.createProblemsLayout(worksheetPage.problems),
         
         // Answer section (on separate page for easy removal)
-        { text: '', pageBreak: 'after' },
+        { text: '', pageBreak: 'after' as const },
         {
           text: 'Answer Key',
           style: 'answerKeyTitle',
-          alignment: 'center',
-          margin: [0, 20, 0, 20]
+          alignment: 'center' as const,
+          margin: [0, 20, 0, 20] as [number, number, number, number]
         },
         ...this.createAnswerKey(worksheetPage.problems)
       ],
@@ -95,25 +179,25 @@ export class VisualWorksheetPdfGenerator {
         },
         nameField: {
           fontSize: 11,
-          margin: [0, 5, 0, 0]
+          margin: [0, 5, 0, 0] as [number, number, number, number]
         },
         dateField: {
           fontSize: 11,
-          margin: [0, 5, 0, 0]
+          margin: [0, 5, 0, 0] as [number, number, number, number]
         },
         problemInstruction: {
           fontSize: 12,
           bold: true,
-          margin: [0, 10, 0, 5]
+          margin: [0, 10, 0, 5] as [number, number, number, number]
         },
         problemNumber: {
           fontSize: 11,
           bold: true,
-          margin: [0, 5, 0, 5]
+          margin: [0, 5, 0, 5] as [number, number, number, number]
         },
         answerLine: {
           fontSize: 11,
-          margin: [0, 5, 0, 10]
+          margin: [0, 5, 0, 10] as [number, number, number, number]
         },
         answerKeyTitle: {
           fontSize: 16,
@@ -122,7 +206,7 @@ export class VisualWorksheetPdfGenerator {
         },
         answerKeyItem: {
           fontSize: 11,
-          margin: [0, 2, 0, 2]
+          margin: [0, 2, 0, 2] as [number, number, number, number]
         }
       },
       
@@ -132,7 +216,7 @@ export class VisualWorksheetPdfGenerator {
         font: 'Helvetica'
       },
       
-      pageMargins: [50, 40, 50, 40],
+      pageMargins: [50, 40, 50, 40] as [number, number, number, number],
       pageSize: 'LETTER'
     };
     
@@ -152,15 +236,15 @@ export class VisualWorksheetPdfGenerator {
   /**
    * Create problems layout in grid format
    */
-  private createProblemsLayout(problems: VisualProblem[]): any[] {
-    const layout: any[] = [];
+  private createProblemsLayout(problems: VisualProblem[]): PdfContent[] {
+    const layout: PdfContent[] = [];
     
     // Group problems into rows of 2
     for (let i = 0; i < problems.length; i += 2) {
       const leftProblem = problems[i];
       const rightProblem = problems[i + 1];
       
-      const row = {
+      const row: PdfContent = {
         columns: [
           {
             width: '48%',
@@ -175,7 +259,7 @@ export class VisualWorksheetPdfGenerator {
             stack: this.createProblemContent(rightProblem, i + 2)
           } : { width: '48%', text: '' }
         ],
-        margin: [0, 0, 0, 25]
+        margin: [0, 0, 0, 25] as [number, number, number, number]
       };
       
       layout.push(row);
@@ -187,8 +271,8 @@ export class VisualWorksheetPdfGenerator {
   /**
    * Create individual problem content
    */
-  private createProblemContent(problem: VisualProblem, problemNumber: number): any[] {
-    const content: any[] = [];
+  private createProblemContent(problem: VisualProblem, problemNumber: number): PdfContent[] {
+    const content: PdfContent[] = [];
     
     // Problem number and instruction
     content.push({
@@ -228,7 +312,7 @@ export class VisualWorksheetPdfGenerator {
   /**
    * Create visual content for problems
    */
-  private createVisualContent(problem: VisualProblem): any {
+  private createVisualContent(problem: VisualProblem): PdfContent {
     // For now, create placeholder rectangles where SVGs would go
     // In a full implementation, you'd convert SVG to PDFMake format
     
@@ -259,7 +343,7 @@ export class VisualWorksheetPdfGenerator {
       };
     } else {
       // Multiple visuals in grid
-      const gridColumns: any[] = [];
+      const gridColumns: PdfColumn[] = [];
       
       problem.visuals.forEach((visual, index) => {
         if (index > 0) {
@@ -281,8 +365,8 @@ export class VisualWorksheetPdfGenerator {
   /**
    * Create visual placeholder (simplified representation)
    */
-  private createVisualPlaceholder(visual: any): any[] {
-    const canvas: any[] = [];
+  private createVisualPlaceholder(visual: VisualElement): PdfCanvasElement[] {
+    const canvas: PdfCanvasElement[] = [];
     
     if (visual.type === 'circle') {
       // Draw circle with segments
@@ -302,7 +386,7 @@ export class VisualWorksheetPdfGenerator {
       
       for (let i = 0; i < totalParts; i++) {
         const startAngle = i * anglePerPart;
-        const endAngle = (i + 1) * anglePerPart;
+        // const endAngle = (i + 1) * anglePerPart; // unused for now
         
         if (i < shadedParts) {
           // This would be shaded in a real implementation
@@ -388,8 +472,8 @@ export class VisualWorksheetPdfGenerator {
   /**
    * Create answer key section
    */
-  private createAnswerKey(problems: VisualProblem[]): any[] {
-    const answerKey: any[] = [];
+  private createAnswerKey(problems: VisualProblem[]): PdfContent[] {
+    const answerKey: PdfContent[] = [];
     
     problems.forEach((problem, index) => {
       if (problem.answer) {
