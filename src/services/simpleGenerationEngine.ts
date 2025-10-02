@@ -370,14 +370,93 @@ IMPORTANT: Return ONLY the JSON response with no other text, explanations, or ma
               console.log(`✅ [Educational Images] Found real educational image from ${bestImage.source}: ${bestImage.title}`);
             } else {
               console.warn(`⚠️ [Educational Images] No suitable educational images found for: ${searchQuery}`);
-              // Remove the visual description if no image found
-              sectionWithImages.content = sectionWithImages.content.replace(matches[i], '');
+              
+              // FALLBACK: Try generating image with DALL-E if educational search fails
+              try {
+                console.log(`🎨 [DALL-E Fallback] Attempting to generate image for: ${description}`);
+                
+                const imagePrompt = `Educational illustration for ${gradeLevel} students: ${description}. Style: colorful, cartoon, educational, child-friendly, no text in image.`;
+                const dalleResult = await this.aiService.generateImage(imagePrompt, {
+                  size: '1024x1024',
+                  quality: 'standard'
+                });
+                
+                if (dalleResult.url) {
+                  // Download and convert DALL-E image to base64
+                  const imageData = await educationalImageSearchService.downloadAndConvertImage(
+                    dalleResult.url,
+                    description
+                  );
+
+                  images.push({
+                    url: dalleResult.url,
+                    localPath: imageData.localPath,
+                    base64Data: imageData.base64Data,
+                    description: description,
+                    placement: i === 0 ? 'header' as const : 'inline' as const
+                  });
+
+                  // Replace the visual description with image reference
+                  sectionWithImages.content = sectionWithImages.content.replace(
+                    matches[i],
+                    `[IMAGE:${dalleResult.url}:${description}]`
+                  );
+
+                  console.log(`✅ [DALL-E Fallback] Successfully generated image for section: ${section.title}`);
+                } else {
+                  console.warn(`⚠️ [DALL-E Fallback] Failed to generate image - leaving visual description as text`);
+                  // Keep the visual description as descriptive text rather than removing it
+                }
+              } catch (dalleError) {
+                console.error(`❌ [DALL-E Fallback] Failed to generate image:`, dalleError);
+                // Keep the visual description as descriptive text rather than removing it
+              }
             }
 
           } catch (error) {
             console.error(`❌ [Educational Images] Failed to find educational image for section "${section.title}":`, error);
-            // Remove the visual description if image search fails
-            sectionWithImages.content = sectionWithImages.content.replace(matches[i], '');
+            
+            // FALLBACK: Try generating image with DALL-E if educational search fails
+            try {
+              console.log(`🎨 [DALL-E Fallback] Attempting to generate image after search error for: ${section.title}`);
+              
+              const description = matches[i].replace(/VISUAL SCENE DESCRIPTION:\s*/i, '').trim();
+              const imagePrompt = `Educational illustration for ${gradeLevel} students: ${description}. Style: colorful, cartoon, educational, child-friendly, no text in image.`;
+              const dalleResult = await this.aiService.generateImage(imagePrompt, {
+                size: '1024x1024',
+                quality: 'standard'
+              });
+              
+              if (dalleResult.url) {
+                // Download and convert DALL-E image to base64
+                const imageData = await educationalImageSearchService.downloadAndConvertImage(
+                  dalleResult.url,
+                  description
+                );
+
+                images.push({
+                  url: dalleResult.url,
+                  localPath: imageData.localPath,
+                  base64Data: imageData.base64Data,
+                  description: description,
+                  placement: i === 0 ? 'header' as const : 'inline' as const
+                });
+
+                // Replace the visual description with image reference
+                sectionWithImages.content = sectionWithImages.content.replace(
+                  matches[i],
+                  `[IMAGE:${dalleResult.url}:${description}]`
+                );
+
+                console.log(`✅ [DALL-E Fallback] Successfully generated image after search error for section: ${section.title}`);
+              } else {
+                console.warn(`⚠️ [DALL-E Fallback] Failed to generate image - keeping visual description as text`);
+                // Keep the visual description as descriptive text rather than removing it
+              }
+            } catch (dalleError) {
+              console.error(`❌ [DALL-E Fallback] Failed to generate image after search error:`, dalleError);
+              // Keep the visual description as descriptive text rather than removing it
+            }
           }
         }
         
