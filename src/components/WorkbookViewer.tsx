@@ -129,7 +129,7 @@ export function WorkbookViewer({ workbook }: WorkbookViewerProps) {
             <h2>Section ${sectionIndex + 1}: ${section.title}</h2>
             <div>
                 <h3>Concept Explanation</h3>
-                <p>${section.conceptExplanation}</p>
+                <div>${processContentWithImages(section.conceptExplanation, (section as { __imageData?: { url: string; localPath?: string; description: string }[] }).__imageData)}</div>
             </div>
             
             ${section.examples && section.examples.length > 0 ? `
@@ -321,6 +321,30 @@ export function WorkbookViewer({ workbook }: WorkbookViewerProps) {
       console.error('❌ Error generating PDF:', error);
       alert('Failed to generate PDF. Please check the console for details.');
     }
+  };
+
+  /**
+   * Process content to convert image placeholders to actual HTML images
+   */
+  const processContentWithImages = (content: string, imageData?: { url: string; localPath?: string; description: string }[]): string => {
+    if (!imageData || imageData.length === 0) {
+      return content;
+    }
+
+    // Replace [IMAGE_0: description] placeholders with actual images
+    return content.replace(/\[IMAGE_(\d+):([^\]]+)\]/g, (match, indexStr, description) => {
+      const index = parseInt(indexStr, 10);
+      if (imageData[index] && (imageData[index].url || imageData[index].localPath)) {
+        const imageUrl = imageData[index].localPath || imageData[index].url;
+        return `<div style="text-align: center; margin: 20px 0;">
+          <img src="${imageUrl}" alt="${description.trim()}" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);" />
+          <p style="font-style: italic; color: #6b7280; margin-top: 8px; font-size: 0.9em;">${description.trim()}</p>
+        </div>`;
+      }
+      return `<div style="text-align: center; margin: 20px 0; padding: 20px; background: #f3f4f6; border-radius: 8px;">
+        <p style="color: #6b7280; font-style: italic;">[Image: ${description.trim()}]</p>
+      </div>`;
+    });
   };
 
   return (

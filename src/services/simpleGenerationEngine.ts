@@ -364,7 +364,7 @@ IMPORTANT: Return ONLY the JSON response with no other text, explanations, or ma
               // Replace the visual description with image reference
               sectionWithImages.content = sectionWithImages.content.replace(
                 matches[i],
-                `[IMAGE:${bestImage.url}:${bestImage.description}]`
+                `[IMAGE_${i}:${bestImage.description}]`
               );
 
               console.log(`✅ [Educational Images] Found real educational image from ${bestImage.source}: ${bestImage.title}`);
@@ -399,7 +399,7 @@ IMPORTANT: Return ONLY the JSON response with no other text, explanations, or ma
                   // Replace the visual description with image reference
                   sectionWithImages.content = sectionWithImages.content.replace(
                     matches[i],
-                    `[IMAGE:${dalleResult.url}:${description}]`
+                    `[IMAGE_${i}:${description}]`
                   );
 
                   console.log(`✅ [DALL-E Fallback] Successfully generated image for section: ${section.title}`);
@@ -445,7 +445,7 @@ IMPORTANT: Return ONLY the JSON response with no other text, explanations, or ma
                 // Replace the visual description with image reference
                 sectionWithImages.content = sectionWithImages.content.replace(
                   matches[i],
-                  `[IMAGE:${dalleResult.url}:${description}]`
+                  `[IMAGE_${i}:${description}]`
                 );
 
                 console.log(`✅ [DALL-E Fallback] Successfully generated image after search error for section: ${section.title}`);
