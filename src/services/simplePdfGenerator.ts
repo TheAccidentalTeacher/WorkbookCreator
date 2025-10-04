@@ -48,28 +48,76 @@ export class SimplePdfGenerator {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private static processContentWithImages(content: string, imageData?: any[]): any[] {
+    // Clean up any leftover visual scene descriptions aggressively
+    content = content.replace(/VISUAL SCENE DESCRIPTION:\s*/gi, '');
+    content = content.replace(/^VISUAL SCENE DESCRIPTION:/gmi, '');
+    content = content.replace(/\bVISUAL SCENE DESCRIPTION:\s*/g, '');
+    
+    // Handle raw DALL-E blob URLs that got embedded directly in content
+    content = content.replace(/\[IMAGE:(https:\/\/[^\]]+)\]/g, (match, url) => {
+      // Convert raw blob URL to a placeholder for PDF processing
+      const parts = match.split(':');
+      const description = parts.length > 2 ? parts.slice(2).join(':').replace(/\]$/, '') : 'Educational illustration';
+      return `[RAW_IMAGE:${url}:${description}]`;
+    });
+    
     if (!imageData || imageData.length === 0) {
-      // No images, return plain text
-      return [{ text: this.processMathContent(content) }];
+      // Handle raw image URLs even without imageData
+      const result = [];
+      const parts = content.split(/\[RAW_IMAGE:([^:]+):?\s*([^\]]+)\]/);
+      
+      for (let i = 0; i < parts.length; i++) {
+        if (i % 3 === 0) {
+          // Text part
+          if (parts[i].trim()) {
+            const cleanText = parts[i].replace(/VISUAL SCENE DESCRIPTION:\s*/gi, '').trim();
+            if (cleanText) {
+              result.push({ text: this.processMathContent(cleanText), margin: [0, 5, 0, 5] });
+            }
+          }
+        } else if (i % 3 === 1) {
+          // Raw image URL and description
+          const imageDescription = parts[i + 1];
+          
+          // For raw URLs, show placeholder text in PDF
+          result.push({
+            text: `[Image: ${imageDescription}]`,
+            style: 'imagePlaceholder',
+            alignment: 'center',
+            margin: [0, 10, 0, 10]
+          });
+          i++; // Skip the description part
+        }
+      }
+      
+      // If no raw images found, return plain text with cleanup
+      if (result.length === 0) {
+        return [{ text: this.processMathContent(content) }];
+      }
+      return result;
     }
 
     const result = [];
     
-    // Split content by image placeholders
-    const parts = content.split(/\[IMAGE_(\d+): ([^\]]+)\]/);
+    // Split content by image placeholders (both formats with flexible spacing)
+    const parts = content.split(/\[(?:IMAGE_(\d+)|RAW_IMAGE:([^:]+)):?\s*([^\]]+)\]/);
     
     for (let i = 0; i < parts.length; i++) {
-      if (i % 3 === 0) {
+      if (i % 4 === 0) {
         // Text part
         if (parts[i].trim()) {
-          result.push({ text: this.processMathContent(parts[i].trim()), margin: [0, 5, 0, 5] });
+          // Clean up any remaining visual scene descriptions in text parts
+          const cleanText = parts[i].replace(/VISUAL SCENE DESCRIPTION:\s*/gi, '').trim();
+          if (cleanText) {
+            result.push({ text: this.processMathContent(cleanText), margin: [0, 5, 0, 5] });
+          }
         }
-      } else if (i % 3 === 1) {
-        // Image index
-        const imageIndex = parseInt(parts[i], 10);
-        const imageDescription = parts[i + 1];
+      } else if (i % 4 === 1) {
+        // Image index (for IMAGE_X format)
+        const imageIndex = parts[i] ? parseInt(parts[i], 10) : null;
+        const imageDescription = parts[i + 2];
         
-        if (imageData[imageIndex] && imageData[imageIndex].base64Data) {
+        if (imageIndex !== null && imageData[imageIndex] && imageData[imageIndex].base64Data) {
           console.log(`🖼️ [PDF] Embedding image ${imageIndex}: ${imageDescription}`);
           
           // Add image to PDF
@@ -97,7 +145,7 @@ export class SimplePdfGenerator {
             margin: [0, 10, 0, 10]
           });
         }
-        i++; // Skip the description part as we've already used it
+        i += 2; // Skip the URL and description parts as we've already used them
       }
     }
 

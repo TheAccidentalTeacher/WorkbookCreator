@@ -4,6 +4,51 @@ import { useState } from 'react';
 import { SimplePdfGenerator } from '@/services/simplePdfGenerator';
 import { Workbook as WorkbookType } from '@/types/workbook';
 
+/**
+ * Process content to convert image placeholders to actual HTML images
+ */
+const processContentWithImages = (content: string, imageData?: { url: string; localPath?: string; description: string }[]): string => {
+  if (!imageData || imageData.length === 0) {
+    // Clean up any leftover visual scene descriptions even without images
+    content = content.replace(/VISUAL SCENE DESCRIPTION:\s*/gi, '');
+  }
+
+  // Handle raw DALL-E blob URLs that got embedded directly in content
+  content = content.replace(/\[IMAGE:(https:\/\/[^\]]+)\]/g, (match, url) => {
+    // Extract description from after the URL if present, otherwise use generic description
+    const parts = match.split(':');
+    const description = parts.length > 2 ? parts.slice(2).join(':').replace(/\]$/, '') : 'Educational illustration';
+    return `<div style="text-align: center; margin: 20px 0;">
+      <img src="${url}" alt="${description}" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);" />
+      <p style="font-style: italic; color: #6b7280; margin-top: 8px; font-size: 0.9em;">${description}</p>
+    </div>`;
+  });
+
+  // Replace [IMAGE_0:description] or [IMAGE_0: description] placeholders with actual images
+  content = content.replace(/\[IMAGE_(\d+):?\s*([^\]]+)\]/g, (match, indexStr, description) => {
+    const index = parseInt(indexStr, 10);
+    if (imageData && imageData[index] && (imageData[index].url || imageData[index].localPath)) {
+      const imageUrl = imageData[index].localPath || imageData[index].url;
+      return `<div style="text-align: center; margin: 20px 0;">
+        <img src="${imageUrl}" alt="${description.trim()}" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);" />
+        <p style="font-style: italic; color: #6b7280; margin-top: 8px; font-size: 0.9em;">${description.trim()}</p>
+      </div>`;
+    }
+    return `<div style="text-align: center; margin: 20px 0; padding: 20px; background: #f3f4f6; border-radius: 8px;">
+      <p style="color: #6b7280; font-style: italic;">[Image: ${description.trim()}]</p>
+    </div>`;
+  });
+
+  // Clean up any remaining visual scene descriptions
+  content = content.replace(/VISUAL SCENE DESCRIPTION:\s*/gi, '');
+  
+  // Also clean up any standalone visual scene descriptions that might be in exercise text
+  content = content.replace(/^VISUAL SCENE DESCRIPTION:/gmi, '');
+  content = content.replace(/\bVISUAL SCENE DESCRIPTION:\s*/g, '');
+  
+  return content;
+};
+
 interface LearningObjective {
   text: string;
   bloomLevel: string;
@@ -323,30 +368,6 @@ export function WorkbookViewer({ workbook }: WorkbookViewerProps) {
     }
   };
 
-  /**
-   * Process content to convert image placeholders to actual HTML images
-   */
-  const processContentWithImages = (content: string, imageData?: { url: string; localPath?: string; description: string }[]): string => {
-    if (!imageData || imageData.length === 0) {
-      return content;
-    }
-
-    // Replace [IMAGE_0: description] placeholders with actual images
-    return content.replace(/\[IMAGE_(\d+):([^\]]+)\]/g, (match, indexStr, description) => {
-      const index = parseInt(indexStr, 10);
-      if (imageData[index] && (imageData[index].url || imageData[index].localPath)) {
-        const imageUrl = imageData[index].localPath || imageData[index].url;
-        return `<div style="text-align: center; margin: 20px 0;">
-          <img src="${imageUrl}" alt="${description.trim()}" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);" />
-          <p style="font-style: italic; color: #6b7280; margin-top: 8px; font-size: 0.9em;">${description.trim()}</p>
-        </div>`;
-      }
-      return `<div style="text-align: center; margin: 20px 0; padding: 20px; background: #f3f4f6; border-radius: 8px;">
-        <p style="color: #6b7280; font-style: italic;">[Image: ${description.trim()}]</p>
-      </div>`;
-    });
-  };
-
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
@@ -465,9 +486,14 @@ function SectionViewer({
       <div className="mb-8">
         <h3 className="text-lg font-semibold text-gray-700 mb-3">Concept Overview</h3>
         <div className="prose text-gray-600 leading-relaxed">
-          {section.conceptExplanation.split('\n').map((paragraph, index) => (
-            <p key={index} className="mb-3">{paragraph}</p>
-          ))}
+          <div 
+            dangerouslySetInnerHTML={{ 
+              __html: processContentWithImages(
+                section.conceptExplanation, 
+                (section as { __imageData?: { url: string; localPath?: string; description: string }[] }).__imageData
+              ) 
+            }} 
+          />
         </div>
       </div>
 
@@ -524,6 +550,7 @@ function SectionViewer({
                 exercise={exercise} 
                 exerciseNumber={index + 1}
                 showSolution={showSolutions}
+                sectionImages={section.__imageData}
               />
             ))}
           </div>
@@ -561,11 +588,19 @@ function SectionViewer({
 function ExerciseViewer({ 
   exercise, 
   exerciseNumber, 
-  showSolution 
+  showSolution,
+  sectionImages 
 }: { 
   exercise: Exercise; 
   exerciseNumber: number;
   showSolution: boolean;
+  sectionImages?: Array<{
+    url: string;
+    localPath?: string;
+    base64Data?: string;
+    description: string;
+    placement: 'header' | 'inline';
+  }>;
 }) {
   const [selectedAnswer, setSelectedAnswer] = useState<string>('');
 
@@ -573,7 +608,12 @@ function ExerciseViewer({
     <div className="border border-gray-200 rounded-lg p-4">
       <h4 className="font-medium text-gray-800 mb-3">Exercise {exerciseNumber}</h4>
       
-      <p className="text-gray-700 mb-4">{exercise.prompt}</p>
+      <div 
+        className="text-gray-700 mb-4" 
+        dangerouslySetInnerHTML={{ 
+          __html: processContentWithImages(exercise.prompt, sectionImages || []) 
+        }} 
+      />
 
       {/* Multiple Choice Options */}
       {exercise.type === 'multiple_choice' && exercise.options && (

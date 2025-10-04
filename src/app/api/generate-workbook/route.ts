@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { ContentGenerationOrchestrator } from '@/services/contentGenerationOrchestrator';
 import { SimpleGenerationEngine, SimpleWorkbookSection } from '@/services/simpleGenerationEngine';
+import { IntelligentWorkbookGenerator } from '@/services/IntelligentWorkbookGenerator';
 
 const GenerationRequestSchema = z.object({
   topic: z.string().min(1, 'Topic is required'),
   gradeBand: z.enum(['k-2', '3-5', '6-8', '9-10', '11-12', 'adult']),
   domain: z.enum(['mathematics', 'science', 'english_language_arts', 'social_studies', 'history', 'geography', 'art', 'music', 'physical_education', 'computer_science', 'foreign_language', 'other']),
-  generationMode: z.enum(['quick', 'comprehensive']).default('comprehensive'),
+  generationMode: z.enum(['quick', 'comprehensive', 'ai-driven']).default('comprehensive'),
   textDensity: z.enum(['minimal', 'moderate', 'text-heavy']).default('minimal'),
   visualOptions: z.object({
     includeIllustrations: z.boolean().default(true),
@@ -170,6 +171,39 @@ export async function POST(request: NextRequest) {
       };
       
       console.log(`⚡ [API] Quick generation completed in ${duration}ms`);
+      
+    } else if (validatedData.generationMode === 'ai-driven') {
+      // Use AI-driven generation with intelligent strategy selection
+      console.log('🤖 [API] Using AI-Driven Mode - IntelligentWorkbookGenerator');
+      const intelligentGenerator = new IntelligentWorkbookGenerator();
+      
+      const aiRequest = {
+        topic: validatedData.topic,
+        subject: validatedData.domain,
+        gradeLevel: validatedData.gradeBand,
+        objectiveCount: validatedData.objectiveCount,
+        sectionCount: validatedData.sectionCount,
+        textDensity: (validatedData.textDensity === 'text-heavy' ? 'detailed' : validatedData.textDensity) as 'minimal' | 'moderate' | 'detailed',
+        includeImages: validatedData.visualOptions.includeIllustrations || validatedData.visualOptions.includeDiagrams,
+        visualOptions: {
+          textDensity: validatedData.textDensity,
+          ...validatedData.visualOptions
+        },
+        specialRequirements: [],
+        timeConstraint: 'standard' as const,
+        targetAudience: `${validatedData.gradeBand} students`,
+        learningStyle: 'mixed' as const,
+        difficultyLevel: 'intermediate' as const
+      };
+      
+      console.log('🤖 [API] Starting AI-driven workbook generation...');
+      const intelligentResult = await intelligentGenerator.generateWorkbook(aiRequest);
+      duration = Date.now() - startTime;
+      
+      workbook = intelligentResult.workbook;
+      
+      console.log(`🤖 [API] AI-driven generation completed in ${duration}ms`);
+      console.log(`🎯 [API] AI Strategy: ${intelligentResult.metadata.strategy.engine} with ${intelligentResult.metadata.confidenceScore}% confidence`);
       
     } else {
       // Use original comprehensive mode
